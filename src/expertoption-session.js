@@ -222,6 +222,18 @@ class ExpertOptionSession {
         this.lastError = 'ExpertOption session rejected by the gateway (expired or unauthorized)';
         throw new ExpertOptionError(this.lastError, 'session_expired', { status: response.status });
       }
+      if (response.status === 502) {
+        this.connected = false;
+        this.verified = false;
+        const detail = await response.json().catch(() => null);
+        const inner = detail && (detail.error || detail);
+        const upstream = inner && typeof inner === 'object' ? String(inner.code || '') : '';
+        const text = inner && typeof inner === 'object' ? String(inner.message || '') : '';
+        if (upstream === 'connect_failed') {
+          this.lastError = text || 'The bridge could not reach ExpertOption';
+          throw new ExpertOptionError(this.lastError.slice(0, 200), 'connect_failed', { status: 502 });
+        }
+      }
       if (response.status === 429 || response.status >= 500) {
         const retryAfterMs = Number(response.headers?.get?.('retry-after') || 0) * 1000;
         if (attempt < retries) {
@@ -253,6 +265,12 @@ class ExpertOptionSession {
         }
         if (code === 'real_read_disabled') {
           throw new ExpertOptionError(message.slice(0, 200), 'real_read_disabled', { status: response.status });
+        }
+        if (code === 'connect_failed' || response.status === 502) {
+          throw new ExpertOptionError(message.slice(0, 200), 'connect_failed', { status: response.status });
+        }
+        if (response.status === 401 || response.status === 403) {
+          throw new ExpertOptionError(message.slice(0, 200), 'bridge_unauthorized', { status: response.status });
         }
         throw new ExpertOptionError(message.slice(0, 200), 'bad_response', { status: response.status });
       }

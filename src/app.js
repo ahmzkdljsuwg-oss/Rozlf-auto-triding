@@ -67,6 +67,9 @@ function createApp({ engine }) {
       expertoption_execution: false,
       expertoption_real_read: config.EXPERTOPTION_ALLOW_REAL_READ,
       session_restore_enabled: config.EXPERTOPTION_RESTORE_SESSION,
+      storage: engine.db
+        ? { driver: engine.db.driver, durable: engine.db.driver === 'postgres' }
+        : null,
       real_trading_approved: config.REAL_TRADING_APPROVED,
       simulated_mt5_allowed: config.ALLOW_SIMULATED_MT5,
       speeds: ['slow', 'medium', 'fast'],

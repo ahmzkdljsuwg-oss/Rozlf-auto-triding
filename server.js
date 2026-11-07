@@ -8,6 +8,11 @@ const { TelegramBotController } = require('./src/telegram_bot');
 
 async function main() {
   const db = await new Database().init();
+  if (!config.DATABASE_URL) {
+    console.warn('WARNING: no DATABASE_URL set. The encrypted ExpertOption session is kept in a local ' +
+      'SQLite file, which is lost when the host restarts or redeploys. Set DATABASE_URL to a persistent ' +
+      'PostgreSQL instance so the session can be restored automatically.');
+  }
   const engine = await new TradingEngine({ db }).init();
   const telegramBot = new TelegramBotController({ notifier: engine.telegram, engine });
   await telegramBot.start();

@@ -93,6 +93,7 @@ class Session:
             except Exception:  # pragma: no cover - best effort cleanup
                 pass
             self.client = None
+            self.quotes.clear()
             self.reconnects += 1
         last: Optional[Exception] = None
         for attempt in range(CONNECT_RETRIES):
@@ -100,6 +101,7 @@ class Session:
                 client = ExpertOptionAsync(self.token, demo=self.demo, url=base_url())
                 await client.connect()
                 self.client = client
+                self.quotes.clear()
                 self.connected_at = time.time()
                 self.last_ok_at = time.time()
                 self.last_error = None

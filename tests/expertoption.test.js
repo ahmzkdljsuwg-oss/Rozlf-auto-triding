@@ -191,6 +191,18 @@ test('stale candles block the analysis', async () => {
   assert.equal(result.direction, 'NO TRADE');
 });
 
+test('a one-minute chart two and a half minutes old is refused, not analysed', async () => {
+  const count = 260;
+  const start = Date.now() - 150_000 - (count - 1) * TF.M1;
+  const fake = gatewayFetch({ instruments: INSTRUMENTS, candles: makeCandles(count, { start }) });
+  const session = sessionFor(fake);
+  await session.verify();
+  const result = await analyzeAsset({ session, assetKey: 'smarty', expiry: '1m' });
+  assert.equal(result.ok, false);
+  assert.equal(result.reason_code, 'stale_data');
+  assert.equal(result.direction, 'NO TRADE');
+});
+
 test('too few candles block the analysis', async () => {
   const fake = gatewayFetch({ instruments: INSTRUMENTS, candles: makeCandles(40) });
   const session = sessionFor(fake);
@@ -349,4 +361,38 @@ test('an inactive asset yields NO TRADE with an explicit reason', async () => {
   assert.equal(result.ok, false);
   assert.equal(result.direction, 'NO TRADE');
   assert.equal(result.reason_code, 'asset_inactive');
+});
+
+test('a bridge that lost the broker connection stops the analysis with connect_failed', async () => {
+  const reply = (status, body) => ({
+    ok: status >= 200 && status < 300,
+    status,
+    headers: { get: () => null },
+    json: async () => body,
+    text: async () => JSON.stringify(body),
+  });
+  const fetchImpl = async (url) => {
+    const parsed = new URL(url);
+    if (parsed.pathname === '/session' || parsed.pathname === '/account') {
+      return reply(200, {
+        ok: true,
+        account: { login: '900001', type: 'demo', currency: 'USD', balance: 10000, equity: 10000 },
+      });
+    }
+    if (parsed.pathname === '/instruments') return reply(200, { ok: true, instruments: INSTRUMENTS });
+    return reply(502, { error: { code: 'connect_failed', message: 'Could not connect to ExpertOption' } });
+  };
+  const session = new ExpertOptionSession({
+    login: '900001', baseUrl: 'https://bridge.test', apiKey: 'bridge-key', token: 'eo-session-token',
+    fetchImpl, minIntervalMs: 0, retries: 0, candleCacheMs: 0, instrumentCacheMs: 0,
+  });
+  await session.verify();
+  await assert.rejects(
+    () => session.candles({ instrumentId: 240, timeframe: 60, limit: 10 }),
+    (err) => err.code === 'connect_failed',
+  );
+  const result = await analyzeAsset({ session, assetKey: 'smarty', expiry: '1m' });
+  assert.equal(result.direction, 'NO TRADE');
+  assert.equal(session.verified, false);
+  assert.ok(['connect_failed', 'not_connected'].includes(result.reason_code));
 });

@@ -55,6 +55,8 @@ services:
         value: "10000"
       - key: EXPERTOPTION_MIN_CANDLES
         value: "80"
+      - key: EXPERTOPTION_MAX_CANDLE_AGE_SECONDS
+        value: "120"
       - key: ALLOW_INSECURE_DASHBOARD
         value: "false"
       - key: SCAN_INTERVAL_SECONDS

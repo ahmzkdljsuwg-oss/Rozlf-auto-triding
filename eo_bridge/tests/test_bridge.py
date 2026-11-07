@@ -235,3 +235,21 @@ def test_vendored_client_refuses_orders():
     for method in ("buy", "sell"):
         with pytest.raises(TradingDisabledError):
             asyncio.run(getattr(instance, method)(240, 10, 60))
+
+
+@pytest.mark.asyncio
+async def test_a_lost_connection_reports_an_error_instead_of_stale_data(client, monkeypatch):
+    first = await client.get("/quote", params={"instrument_id": 240, "timeframe": "M1"}, headers=HEADERS)
+    assert first.status_code == 200
+
+    session = next(iter(manager.registry.sessions.values()))
+    session.client.client.connected = False
+
+    async def refuse(*_args, **_kwargs):
+        raise ConnectionError("network down")
+
+    monkeypatch.setattr(manager, "ExpertOptionAsync", lambda *a, **k: refuse())
+    session.quotes.clear()
+    lost = await client.get("/quote", params={"instrument_id": 240, "timeframe": "M1"}, headers=HEADERS)
+    assert lost.status_code == 502
+    assert lost.json()["error"]["code"] == "connect_failed"

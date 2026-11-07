@@ -232,7 +232,7 @@ async function analyzeAsset({
 
   const last = candles[candles.length - 1];
   const ageSeconds = Math.max(0, Math.round((now - last.time) / 1000));
-  const allowedAge = Math.min(maxCandleAgeSeconds, Math.max(90, fiveIntervals(timeframe)));
+  const allowedAge = Math.max(60, Math.min(maxCandleAgeSeconds, fiveIntervals(timeframe)));
   const priceTime = new Date(last.time).toISOString();
   if (ageSeconds > allowedAge) {
     return fail('stale_data', `Last candle is ${ageSeconds}s old (allowed ${allowedAge}s).`, `آخر شمعة عمرها ${ageSeconds} ثانية والمسموح ${allowedAge} ثانية.`, {

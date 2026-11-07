@@ -160,11 +160,14 @@ class Database {
   async init() {
     if (this.driver === 'postgres') {
       const { Pool } = require('pg');
-      const needsSsl = /sslmode=require/i.test(this.connectionString) ||
+      const needsSsl = /sslmode=(require|verify-ca|verify-full)/i.test(this.connectionString) ||
         String(process.env.PGSSL || '').toLowerCase() === 'true';
+      // TLS certificates are verified by default. PGSSL_INSECURE=true is an
+      // explicit last resort for a provider whose CA is not trusted by Node.
+      const insecure = String(process.env.PGSSL_INSECURE || '').toLowerCase() === 'true';
       this.pool = new Pool({
         connectionString: this.connectionString,
-        ssl: needsSsl ? { rejectUnauthorized: false } : undefined,
+        ssl: needsSsl ? { rejectUnauthorized: !insecure } : undefined,
         max: 8,
       });
       for (const statement of PG_SCHEMA) await this.pool.query(statement);
