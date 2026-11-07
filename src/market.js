@@ -1,26 +1,27 @@
 'use strict';
 
 const config = require('./config');
+const { CATALOG } = require('./market-catalog');
 
-const YAHOO_SYMBOLS = {
-  EURUSD: 'EURUSD=X',
-  GBPUSD: 'GBPUSD=X',
-  USDJPY: 'USDJPY=X',
-  AUDUSD: 'AUDUSD=X',
-  USDCAD: 'USDCAD=X',
-  NZDUSD: 'NZDUSD=X',
-  XAUUSD: 'GC=F',
-};
+const CATALOG_BY_SYMBOL = new Map(CATALOG.map((item) => [item.symbol, item]));
+
+const YAHOO_SYMBOLS = Object.fromEntries(
+  CATALOG.map((item) => [item.symbol, item.yahoo]),
+);
+// Keep the seven default symbols working even if the catalog changes.
+for (const symbol of config.SYMBOLS) {
+  const item = CATALOG_BY_SYMBOL.get(symbol);
+  if (item && !YAHOO_SYMBOLS[symbol]) YAHOO_SYMBOLS[symbol] = item.yahoo;
+}
 
 const INTERVAL_MAP = { M5: '5m', M15: '15m', H1: '1h', H4: '1h', D1: '1d' };
 const RANGE_MAP = { M5: '5d', M15: '5d', H1: '1mo', H4: '1mo', D1: '6mo' };
 const TF_SECONDS = { M5: 300, M15: 900, H1: 3600, H4: 14400, D1: 86400 };
 
-const PIP_SIZE = {
-  EURUSD: 0.0001, GBPUSD: 0.0001, AUDUSD: 0.0001,
-  USDCAD: 0.0001, NZDUSD: 0.0001,
-  USDJPY: 0.01, XAUUSD: 0.1,
-};
+const PIP_SIZE = Object.fromEntries(CATALOG.map((item) => [item.symbol, item.pip]));
+for (const symbol of config.SYMBOLS) {
+  if (!PIP_SIZE[symbol]) PIP_SIZE[symbol] = /JPY$/.test(symbol) ? 0.01 : 0.0001;
+}
 
 const BASE_SPREAD_PIPS = {
   EURUSD: 0.8, GBPUSD: 1.1, USDJPY: 0.9, AUDUSD: 1.0,
@@ -191,7 +192,11 @@ function pipValuePerLot() {
   return 10.0;
 }
 
+function catalogEntry(symbol) {
+  return CATALOG_BY_SYMBOL.get(symbol) || null;
+}
+
 module.exports = {
-  MarketDataService, MarketDataError, pipSize, pipValuePerLot,
-  PIP_SIZE, YAHOO_SYMBOLS,
+  MarketDataService, MarketDataError, pipSize, pipValuePerLot, catalogEntry,
+  PIP_SIZE, YAHOO_SYMBOLS, CATALOG_BY_SYMBOL,
 };

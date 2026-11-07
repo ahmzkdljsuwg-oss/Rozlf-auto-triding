@@ -153,6 +153,42 @@ function createApp({ engine }) {
     }
   });
 
+  app.get('/api/scanner', async (req, res) => {
+    res.json(engine.scanner.status());
+  });
+
+  app.post('/api/scanner/scan', async (req, res) => {
+    if (!engine.account) return fail(res, 409, 'Connect a Demo analysis session first');
+    if (engine.platform !== 'expertoption') {
+      return fail(res, 409, 'The full market scanner is available on the ExpertOption analysis session');
+    }
+    const body = req.body || {};
+    const continuous = body.continuous !== false;
+    if (continuous) {
+      engine.scanner.startAuto(Math.max(30, Number(body.interval_seconds) || 90) * 1000);
+    } else {
+      engine.scanner.startScan();
+    }
+    await engine.db.addLog('info', 'scanner', `Full market scan started (${continuous ? 'continuous' : 'single'})`);
+    res.json(engine.scanner.status());
+  });
+
+  app.post('/api/scanner/stop', async (req, res) => {
+    engine.scanner.stopAuto();
+    await engine.db.addLog('info', 'scanner', 'Automatic market scanning stopped');
+    res.json(engine.scanner.status());
+  });
+
+  app.post('/api/scanner/trade', async (req, res) => {
+    const status = engine.scanner.status();
+    await engine.db.addLog('warn', 'scanner', 'ExpertOption trade execution blocked: no approved API');
+    return res.status(403).json({
+      detail: status.execution.reason,
+      can_trade: false,
+      official_integration: false,
+    });
+  });
+
   app.get('/api/stats', async (req, res) => {
     res.json(await engine.stats());
   });

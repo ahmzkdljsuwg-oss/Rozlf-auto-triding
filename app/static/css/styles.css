@@ -504,3 +504,51 @@ button.system-item:hover { border-color: #d7e6fb; }
 @media (min-width: 620px) { .check-grid { grid-template-columns: repeat(3, 1fr); } }
 .check-item { display: flex; align-items: center; gap: 7px; background: var(--bg-soft); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; font-size: 12px; font-weight: 600; }
 .check-item input { accent-color: var(--blue); }
+
+/* ============ full market scanner ============ */
+.scanner-sub { margin: 0 0 12px; color: var(--muted); font-size: 12.5px; line-height: 1.7; }
+.scanner-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+.scanner-actions .primary-btn, .scanner-actions .ghost-btn { flex: 1 1 140px; }
+.scanner-summary { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 10px; }
+@media (min-width: 620px) { .scanner-summary { grid-template-columns: repeat(4, 1fr); } }
+.scanner-summary div { background: var(--bg-soft); border: 1px solid var(--line); border-radius: 12px; padding: 10px; display: flex; flex-direction: column; gap: 3px; }
+.scanner-summary span { color: var(--muted-2); font-size: 10.5px; font-weight: 700; }
+.scanner-summary strong { font-size: 16px; font-weight: 800; }
+.scanner-state { margin: 0 0 10px; font-size: 11.5px; font-weight: 700; color: var(--muted); }
+.scanner-state.busy { color: var(--blue); }
+.scanner-state.error { color: var(--red); }
+.scanner-tabs { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 8px; margin-bottom: 8px; scrollbar-width: thin; }
+.scanner-tab { flex: 0 0 auto; border: 1px solid var(--line); background: #fff; color: var(--muted); border-radius: 99px; padding: 7px 11px; font-size: 11px; font-weight: 800; cursor: pointer; }
+.scanner-tab.active { background: var(--blue); border-color: var(--blue); color: #fff; }
+.scanner-tab small { opacity: .75; margin-inline-start: 4px; }
+.scanner-note { background: #fff8e6; border: 1px solid #f5dda0; color: #7a5300; border-radius: 10px; padding: 9px 11px; font-size: 11px; line-height: 1.6; margin: 0 0 10px; }
+.scanner-list { display: flex; flex-direction: column; gap: 7px; max-height: 560px; overflow-y: auto; }
+.scanner-row { border: 1px solid var(--line); border-radius: 14px; background: #fbfdff; overflow: hidden; }
+.scanner-row summary { list-style: none; cursor: pointer; display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, .9fr) auto; gap: 8px; align-items: center; padding: 10px 11px; }
+.scanner-row summary::-webkit-details-marker { display: none; }
+.scanner-id { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.scanner-id strong { font-size: 12.5px; font-weight: 800; }
+.scanner-id small { color: var(--muted-2); font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.scanner-price { text-align: end; display: flex; flex-direction: column; gap: 2px; }
+.scanner-price strong { font-size: 12.5px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.scanner-price small { font-size: 9.5px; color: var(--muted-2); }
+.scanner-badges { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
+.scan-side { display: inline-block; padding: 3px 7px; border-radius: 7px; font-size: 9.5px; font-weight: 900; letter-spacing: .03em; }
+.scan-side.BUY { background: #e6f8f1; color: #00805f; }
+.scan-side.SELL { background: #fff0f3; color: #c02045; }
+.scan-side.NO { background: #eef1f5; color: #7a8494; }
+.scan-strength { height: 4px; width: 64px; border-radius: 99px; background: #e7edf5; overflow: hidden; }
+.scan-strength i { display: block; height: 100%; background: var(--grad); }
+.scan-detail { border-top: 1px dashed var(--line); padding: 10px 11px; display: flex; flex-direction: column; gap: 6px; background: #fff; }
+.scan-detail p { margin: 0; font-size: 11px; line-height: 1.65; color: var(--muted); }
+.scan-kv { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
+.scan-kv span { background: var(--bg-soft); border-radius: 8px; padding: 6px 7px; font-size: 9.5px; color: var(--muted-2); }
+.scan-kv strong { display: block; color: var(--ink, #15213a); font-size: 11px; margin-top: 2px; }
+.scanner-disclaimer { margin: 10px 0 0; color: var(--muted-2); font-size: 10px; line-height: 1.6; }
+.status-pill.analysis { background: #fff6e5; color: #a86500; }
+.status-pill.analysis i { background: #f0a01e; }
+@media (max-width: 420px) {
+  .scanner-row summary { grid-template-columns: minmax(0, 1.2fr) auto; }
+  .scanner-price { display: none; }
+  .scanner-badges { align-items: flex-end; }
+}

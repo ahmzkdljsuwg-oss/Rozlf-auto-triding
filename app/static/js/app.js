@@ -7,6 +7,8 @@
     config: null,
     status: null,
     trades: [],
+    scanner: null,
+    scannerFilter: "all",
     poll: null,
     historyTick: 0,
     token: localStorage.getItem("rozzlf_dash_token") || "",
@@ -140,6 +142,7 @@
     await refreshStatus();
     await loadHistory();
     await loadStats();
+    if (state.status && state.status.analysis_only) await loadScanner();
     if (state.poll) clearInterval(state.poll);
     state.poll = setInterval(tick, 5000);
   }
@@ -151,6 +154,7 @@
       await refreshStatus();
       if (state.historyTick % 2 === 0) await loadHistory();
       if (state.historyTick % 6 === 0) await loadStats();
+      if (state.historyTick % 3 === 0 && state.status && state.status.analysis_only) await loadScanner();
     } catch (err) {
       const pill = $("#conn-pill");
       pill.className = "status-pill bad";
@@ -193,8 +197,13 @@
 
     const pill = $("#conn-pill");
     const ok = s.broker_connected && s.account_synced;
-    pill.className = "status-pill " + (ok ? "ok" : "bad");
-    pill.innerHTML = "<i></i><span>" + (ok ? t("dash.marketOk") : t("status.disconnected")) + "</span>";
+    if (s.analysis_only) {
+      pill.className = "status-pill analysis";
+      pill.innerHTML = "<i></i><span>" + t("status.analysis") + "</span>";
+    } else {
+      pill.className = "status-pill " + (ok ? "ok" : "bad");
+      pill.innerHTML = "<i></i><span>" + (ok ? t("dash.marketOk") : t("status.disconnected")) + "</span>";
+    }
 
     const dot = $("#live-dot");
     dot.className = "live-dot" + (s.emergency ? " emergency" : s.running ? " on" : "");
@@ -242,6 +251,8 @@
 
     renderOpportunities(s.opportunities || []);
     renderOpenTrades(s.open_trades || []);
+    const scannerPanel = $("#scanner-panel");
+    if (scannerPanel) scannerPanel.classList.toggle("hidden", !s.analysis_only);
     $("#scan-hint").textContent = s.scan_count ? t("status.scans") + " " + s.scan_count : t("dash.scanning");
   }
 
@@ -276,6 +287,145 @@
         '<span class="conf-num">' + Math.round((o.confidence || 0) * 100) + "%</span></div>" +
         "</div>";
     }).join("");
+  }
+
+  function categoryLabel(scanner, id) {
+    const cat = (scanner.categories || []).find((c) => c.id === id);
+    if (!cat) return id;
+    return window.I18N.lang === "ar" ? cat.label_ar : cat.label_en;
+  }
+
+  function fmtScanPrice(v) {
+    const n = Number(v);
+    if (!Number.isFinite(n) || n === 0) return "—";
+    return n >= 1000 ? n.toLocaleString("en-US", { maximumFractionDigits: 2 })
+      : n >= 10 ? n.toFixed(3) : n.toFixed(5);
+  }
+
+  async function loadScanner() {
+    if (!state.status || !state.status.analysis_only) return;
+    try {
+      const scanner = await api("/scanner");
+      state.scanner = scanner;
+      renderScanner(scanner);
+    } catch (err) { /* keep the last scanner snapshot */ }
+  }
+
+  function renderScanner(scanner) {
+    const scan = scanner.scan || {};
+    $("#scan-total").textContent = scan.total || 0;
+    $("#scan-analyzed").textContent = scan.scanned || 0;
+    $("#scan-qualified").textContent = scan.qualified || 0;
+    $("#scan-buysell").textContent = (scan.buys || 0) + " / " + (scan.sells || 0);
+    const stateEl = $("#scanner-state");
+    stateEl.className = "scanner-state" + (scan.running ? " busy" : "");
+    if (scan.running) {
+      stateEl.textContent = t("scan.running") + " " + (scan.scanned || 0) + "/" + (scan.total || 0);
+    } else if (!scan.finished_at) {
+      stateEl.textContent = t("scan.notStarted");
+    } else {
+      stateEl.textContent = (scanner.auto ? t("scan.autoOn") : t("scan.autoOff")) +
+        " · " + (scan.failed ? t("scan.status.unavailable") + ": " + scan.failed : t("scan.idle"));
+    }
+    $("#scanner-updated").textContent = scan.finished_at
+      ? t("scan.lastUpdate") + ": " + fmtTime(scan.finished_at) : "—";
+    $("#scanner-start").disabled = Boolean(scan.running);
+
+    const tabs = $("#scanner-tabs");
+    const active = state.scannerFilter || "all";
+    tabs.innerHTML = (scanner.categories || []).map((cat) =>
+      '<button type="button" class="scanner-tab' + (cat.id === active ? " active" : "") +
+      '" data-scan-cat="' + esc(cat.id) + '" role="tab">' +
+      esc(window.I18N.lang === "ar" ? cat.label_ar : cat.label_en) +
+      "<small>" + (cat.count || 0) + "</small></button>"
+    ).join("");
+
+    const cat = (scanner.categories || []).find((c) => c.id === active);
+    const note = $("#scanner-category-note");
+    const unavailable = cat && cat.unavailable_reason;
+    note.classList.toggle("hidden", !unavailable);
+    note.textContent = unavailable ? t("scan.categoryUnavailable") : "";
+
+    const list = (scanner.markets || []).filter((row) => active === "all" || row.category === active);
+    const box = $("#scanner-list");
+    if (!list.length) {
+      box.innerHTML = '<div class="empty-state">' + (unavailable ? t("scan.categoryUnavailable") : t("scan.idle")) + "</div>";
+      return;
+    }
+    const ar = window.I18N.lang === "ar";
+    box.innerHTML = list.map((row) => {
+      const side = row.signal === "BUY" ? "BUY" : row.signal === "SELL" ? "SELL" : "NO";
+      const sideLabel = side === "NO" ? t("status.noTrade") : side;
+      const statusKey = "scan.status." + (row.status || "pending");
+      const trend = t("trend." + (row.trend || "unknown"));
+      const change = row.change_percent === null || row.change_percent === undefined ? "" :
+        " · " + (row.change_percent > 0 ? "+" : "") + row.change_percent + "%";
+      const structure = row.structure || {};
+      const reason = ar ? row.reason_ar : row.reason_en;
+      const duration = row.duration_minutes
+        ? '<span>' + t("scan.duration") + '<strong>' + row.duration_minutes + " " + t("scan.minutes") + "</strong></span>"
+        : "";
+      const detail = '<div class="scan-detail">' +
+        '<p><strong>' + t("scan.reason") + ":</strong> " + esc(reason || t("scan.noData")) + "</p>" +
+        '<div class="scan-kv">' +
+        '<span>' + t("scan.trend") + '<strong>' + esc(trend) + "</strong></span>" +
+        '<span>ADX<strong>' + (row.adx === null ? "—" : row.adx) + "</strong></span>" +
+        '<span>RSI<strong>' + (row.rsi === null ? "—" : row.rsi) + "</strong></span>" +
+        '<span>ATR<strong>' + (row.atr === null ? "—" : row.atr) + "</strong></span>" +
+        '<span>' + t("scan.support") + '<strong>' + (row.support ? fmtScanPrice(row.support) : "—") + "</strong></span>" +
+        '<span>' + t("scan.resistance") + '<strong>' + (row.resistance ? fmtScanPrice(row.resistance) : "—") + "</strong></span>" +
+        '<span>' + t("scan.structure") + '<strong>' + esc(structure.bias || "neutral") +
+          (structure.bos ? " · BOS" : "") + (structure.choch ? " · CHoCH" : "") + "</strong></span>" +
+        duration + "</div>" +
+        '<p style="color:var(--muted-2)">' + t("scan.chartNote") + "</p></div>";
+      return '<details class="scanner-row">' +
+        "<summary>" +
+        '<div class="scanner-id"><strong>' + esc(row.symbol) + '</strong><small>' +
+          esc(row.name) + " · " + esc(categoryLabel(scanner, row.category)) + "</small></div>" +
+        '<div class="scanner-price"><strong>' + fmtScanPrice(row.price) + "</strong><small>" +
+          esc(trend) + change + "</small></div>" +
+        '<div class="scanner-badges"><span class="scan-side ' + side + '">' + esc(sideLabel) + "</span>" +
+          '<div class="scan-strength"><i style="width:' + Math.max(2, Math.round(row.strength || 0)) + '%"></i></div>' +
+          "<small>" + Math.round(row.strength || 0) + "% · " + esc(t(statusKey)) + "</small></div>" +
+        "</summary>" + detail + "</details>";
+    }).join("");
+  }
+
+  async function startScanning() {
+    const btn = $("#scanner-start");
+    btn.disabled = true;
+    try {
+      const scanner = await api("/scanner/scan", {
+        method: "POST",
+        body: JSON.stringify({ continuous: true, interval_seconds: 90 }),
+      });
+      state.scanner = scanner;
+      renderScanner(scanner);
+      toast(t("scan.autoOn"), "success");
+    } catch (err) {
+      toast(err.message, "error");
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  async function stopScanning() {
+    try {
+      const scanner = await api("/scanner/stop", { method: "POST" });
+      state.scanner = scanner;
+      renderScanner(scanner);
+      toast(t("scan.autoOff"));
+    } catch (err) {
+      toast(err.message, "error");
+    }
+  }
+
+  async function scannerTrade() {
+    try {
+      await api("/scanner/trade", { method: "POST" });
+    } catch (err) {
+      toast(t("scan.execBlocked"), "error");
+    }
   }
 
   function renderOpenTrades(list) {
@@ -649,6 +799,15 @@
     $("#open-settings").addEventListener("click", openSettings);
     $("#settings-form").addEventListener("submit", saveSettings);
     $("#run-analysis").addEventListener("click", runAnalysis);
+    $("#scanner-start").addEventListener("click", startScanning);
+    $("#scanner-stop").addEventListener("click", stopScanning);
+    $("#scanner-trade").addEventListener("click", scannerTrade);
+    $("#scanner-tabs").addEventListener("click", (e) => {
+      const tab = e.target.closest("[data-scan-cat]");
+      if (!tab) return;
+      state.scannerFilter = tab.dataset.scanCat;
+      if (state.scanner) renderScanner(state.scanner);
+    });
     $("#send-chart").addEventListener("click", openAnalysisChart);
     $("#close-all").addEventListener("click", closeAllTrades);
     $("#refresh-stats").addEventListener("click", loadStats);
@@ -670,6 +829,7 @@
     });
     document.addEventListener("langchange", () => {
       if (state.status) renderStatus(state.status);
+      if (state.scanner) renderScanner(state.scanner);
       renderHistory(state.trades);
     });
   }

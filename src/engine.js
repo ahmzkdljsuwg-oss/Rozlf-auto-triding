@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const config = require('./config');
 const { MarketDataService, MarketDataError, pipSize } = require('./market');
+const { MarketScanner, EXECUTION_BLOCKED_REASON } = require('./scanner');
 const { buildSignal } = require('./strategy');
 const { RiskManager, DEFAULTS } = require('./risk');
 const { PaperBroker } = require('./brokers/paper');
@@ -23,6 +24,7 @@ class TradingEngine {
   constructor(options = {}) {
     this.db = options.db;
     this.market = options.market || new MarketDataService();
+    this.scanner = new MarketScanner({ market: this.market });
     this.telegram = options.telegram || new TelegramNotifier();
     this.analyzer = options.analyzer || new GeminiAnalyzer();
     this.chartDir = options.chartDir || config.CHART_DIR;
@@ -245,6 +247,8 @@ class TradingEngine {
       this.lastError = null;
       this.opportunities = [];
       this._lastTradeAt.clear();
+      this.scanner.reset();
+      this.scanner.bindAccount(this.account);
       await this.db.addLog('info', 'broker', `ExpertOption analysis session for ${login}`, {
         mode: 'analysis_only',
       });
@@ -330,6 +334,7 @@ class TradingEngine {
 
   async disconnect() {
     await this.stop('disconnect');
+    this.scanner.stopAuto();
     if (this.broker) {
       try { await this.broker.disconnect(); } catch { /* ignore */ }
     }
@@ -351,6 +356,7 @@ class TradingEngine {
     this.positionSyncError = null;
     this.brokerPositions = 0;
     this._lastTradeAt.clear();
+    this.scanner.reset();
     await this.db.addLog('info', 'broker', 'Account disconnected');
     return { ok: true };
   }
@@ -398,6 +404,7 @@ class TradingEngine {
 
   async emergencyStop() {
     this.emergency = true;
+    this.scanner.stopAuto();
     this.running = false;
     this._started = false;
     if (this._timer) {
@@ -499,6 +506,24 @@ class TradingEngine {
     return snaps;
   }
 
+  scannerSummary() {
+    const scanner = this.scanner.status();
+    return {
+      running: scanner.scan.running,
+      auto: scanner.auto,
+      scanned: scanner.scan.scanned,
+      total: scanner.scan.total,
+      qualified: scanner.scan.qualified,
+      buys: scanner.scan.buys,
+      sells: scanner.scan.sells,
+      failed: scanner.scan.failed,
+      stale: scanner.scan.stale,
+      finished_at: scanner.scan.finished_at,
+      execution_can_trade: false,
+      execution_reason: EXECUTION_BLOCKED_REASON,
+    };
+  }
+
   async status() {
     const risk = this.risk.settings;
     let openTrades = [];
@@ -514,6 +539,7 @@ class TradingEngine {
     const todayPnl = Math.round(closedToday.reduce((sum, t) => sum + Number(t.pnl || 0), 0) * 100) / 100;
     const balance = this.accountBalance || 0;
     return {
+      connected: Boolean(this.account),
       account_login: this.account ? this.account.login : '',
       account_type: this.accountType,
       account_synced: this.accountSynced,
@@ -521,6 +547,7 @@ class TradingEngine {
       account_sync_at: this.accountSyncAt,
       account_sync_error: this.accountSyncError,
       account_status: this.analysisOnly ? 'analysis' : (this.accountSynced ? 'connected' : 'disconnected'),
+      scanner: this.scannerSummary(),
       analysis_only: this.analysisOnly,
       margin_free: this.marginFree,
       margin_used: this.marginUsed,

@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/css/styles.css" />
+  <link rel="stylesheet" href="/static/css/styles.css?v=3" />
 </head>
 <body>
 <div class="app-shell">
@@ -259,6 +259,32 @@
           <div class="empty-state" data-i18n="dash.noOpp">يجري مسح الأسواق...</div>
         </div>
       </section>
+      <section class="panel scanner-panel" id="scanner-panel">
+        <div class="panel-head">
+          <h2 data-i18n="scan.title">ماسح الأسواق الكامل</h2>
+          <span class="panel-hint" id="scanner-updated">—</span>
+        </div>
+        <p class="scanner-sub" data-i18n="scan.subtitle">تحليل عام لجميع أسواق المنصة المتاحة، مع ترتيب الفرص حسب قوة الإشارة.</p>
+        <div class="scanner-actions">
+          <button class="primary-btn compact" id="scanner-start" type="button" data-i18n="scan.startScan">بدء المسح</button>
+          <button class="ghost-btn compact" id="scanner-stop" type="button" data-i18n="scan.stopScan">إيقاف المسح</button>
+          <button class="ghost-btn compact" id="scanner-trade" type="button" data-i18n="scan.startTrade">بدء التداول</button>
+        </div>
+        <div class="scanner-summary">
+          <div><span data-i18n="scan.total">إجمالي الأسواق</span><strong id="scan-total">0</strong></div>
+          <div><span data-i18n="scan.analyzed">تم تحليلها</span><strong id="scan-analyzed">0</strong></div>
+          <div><span data-i18n="scan.qualified">فرص مؤهلة</span><strong id="scan-qualified">0</strong></div>
+          <div><span data-i18n="scan.buySell">شراء / بيع</span><strong id="scan-buysell">0 / 0</strong></div>
+        </div>
+        <p class="scanner-state" id="scanner-state">—</p>
+        <div class="scanner-tabs" id="scanner-tabs" role="tablist"></div>
+        <p class="scanner-note hidden" id="scanner-category-note"></p>
+        <div class="scanner-list" id="scanner-list">
+          <div class="empty-state" data-i18n="scan.idle">اضغط بدء المسح لتحليل الأسواق المتاحة.</div>
+        </div>
+        <p class="scanner-disclaimer" data-i18n="scan.disclaimer">الأسعار مراجع سوق عامة وليست أسعار ExpertOption. الأصول OTC وSmarty خاصة بالحساب ولا تُدرج دون مصدر رسمي.</p>
+      </section>
+
 
       <!-- open positions -->
       <section class="panel">
@@ -376,7 +402,7 @@
 
   <div id="toast" class="toast hidden"></div>
 </div>
-<script src="/static/js/i18n.js"></script>
-<script src="/static/js/app.js"></script>
+<script src="/static/js/i18n.js?v=3"></script>
+<script src="/static/js/app.js?v=3"></script>
 </body>
 </html>
