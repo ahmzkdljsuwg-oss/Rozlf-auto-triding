@@ -45,6 +45,54 @@
     }[c]));
   }
 
+  const EO_ASSETS = [
+    { id: "ai-index", name: "AI Index", icon: "🤖", kind: "synthetic" },
+    { id: "cricket-index", name: "Cricket Index", icon: "🏏", kind: "synthetic" },
+    { id: "stock", name: "سهم", icon: "📈", kind: "stock" },
+    { id: "eurusd-otc", name: "EUR / USD (OTC)", icon: "🇪🇺", kind: "otc" },
+    { id: "usdjpy-otc", name: "USD / JPY (OTC)", icon: "🇯🇵", kind: "otc" },
+    { id: "gbpusd-otc", name: "GBP / USD (OTC)", icon: "🇬🇧", kind: "otc" },
+    { id: "football-index", name: "Football Index", icon: "⚽", kind: "synthetic" },
+    { id: "luxury-index", name: "Luxury Index", icon: "💎", kind: "synthetic" },
+    { id: "smarty", name: "Smarty", icon: "🔷", kind: "smarty" },
+    { id: "usdchf-otc", name: "USD / CHF (OTC)", icon: "🇨🇭", kind: "otc" },
+    { id: "silver-otc", name: "Silver (OTC)", icon: "🥈", kind: "otc" },
+    { id: "nzdusd-otc", name: "NZD / USD (OTC)", icon: "🇳🇿", kind: "otc" },
+  ];
+  let selectedEOAsset = "";
+  function renderEOAssets() {
+    const box = $("#eo-assets");
+    if (!box) return;
+    box.innerHTML = EO_ASSETS.map((asset) => '<button type="button" class="eo-asset' +
+      (selectedEOAsset === asset.id ? ' active' : '') + '" data-eo-asset="' + asset.id + '">' +
+      '<span class="eo-asset-icon" aria-hidden="true">' + asset.icon + '</span>' +
+      '<span class="eo-asset-copy"><strong>' + esc(asset.name) + '</strong><small>ExpertOption</small></span>' +
+      '<span class="eo-asset-state">يتطلب مصدر مباشر</span></button>').join("");
+    box.querySelectorAll("[data-eo-asset]").forEach((btn) => btn.addEventListener("click", () => {
+      selectedEOAsset = btn.dataset.eoAsset;
+      renderEOAssets();
+      $("#eo-analyze-selected").disabled = false;
+      $("#eo-analysis-result").textContent = "تم اختيار " + EO_ASSETS.find((a) => a.id === selectedEOAsset).name + " — اختر المدة ثم ابدأ التحليل.";
+      $("#eo-analysis-result").className = "eo-analysis-result";
+    }));
+  }
+  async function analyzeEOSelected() {
+    if (!selectedEOAsset) return;
+    const btn = $("#eo-analyze-selected");
+    const out = $("#eo-analysis-result");
+    btn.disabled = true; btn.textContent = "جارٍ التحقق من البيانات…";
+    out.className = "eo-analysis-result";
+    try {
+      const result = await api("/expertoption/auto-analysis", { method: "POST", body: JSON.stringify({
+        asset_id: selectedEOAsset, expiry: $("#eo-expiry").value,
+      }) });
+      out.textContent = result.message || "لا توجد بيانات كافية لإصدار إشارة.";
+    } catch (err) {
+      out.textContent = err.message;
+      out.className = "eo-analysis-result error";
+    } finally { btn.disabled = false; btn.textContent = "حلّل الأصل المحدد"; }
+  }
+
   let toastTimer = null;
   function toast(msg, type) {
     const el = $("#toast");
@@ -899,6 +947,8 @@
     $("#run-analysis").addEventListener("click", runAnalysis);
     $("#analyze-chart-image").addEventListener("click", analyzeChartImage);
     $("#scanner-start").addEventListener("click", startScanning);
+    renderEOAssets();
+    $("#eo-analyze-selected").addEventListener("click", analyzeEOSelected);
     $("#scanner-stop").addEventListener("click", stopScanning);
     $("#scanner-trade").addEventListener("click", scannerTrade);
     $("#scanner-tabs").addEventListener("click", (e) => {

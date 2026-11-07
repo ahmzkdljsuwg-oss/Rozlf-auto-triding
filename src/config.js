@@ -41,6 +41,8 @@ const config = {
 
   GEMINI_API_KEY: env('GEMINI_API_KEY', ''),
   GEMINI_MODEL: env('GEMINI_MODEL', 'gemini-2.0-flash'),
+  MISTRAL_API_KEY: env('MISTRAL_API_KEY', ''),
+  MISTRAL_MODEL: env('MISTRAL_MODEL', 'mistral-small-latest'),
   TELEGRAM_BOT_TOKEN: env('TELEGRAM_BOT_TOKEN', ''),
   TELEGRAM_CHAT_ID: env('TELEGRAM_CHAT_ID', ''),
 

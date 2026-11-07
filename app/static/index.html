@@ -260,6 +260,28 @@
           <div class="empty-state" data-i18n="dash.noOpp">يجري مسح الأسواق...</div>
         </div>
       </section>
+      <section class="panel eo-auto-panel" id="eo-auto-panel">
+        <div class="panel-head">
+          <h2>حلّل تلقائي</h2>
+          <span class="panel-hint">ExpertOption · تحليل فقط</span>
+        </div>
+        <p class="scanner-sub">اختر أصلاً ومدة الإشارة. لا يحتاج هذا الوضع إلى رفع صورة.</p>
+        <div class="eo-assets" id="eo-assets" aria-label="أصول ExpertOption"></div>
+        <div class="eo-expiry-wrap">
+          <label class="field-label" for="eo-expiry">مدة الإشارة</label>
+          <select id="eo-expiry">
+            <option value="30s">30 ثانية</option>
+            <option value="1m" selected>دقيقة واحدة</option>
+            <option value="2m">دقيقتان</option>
+            <option value="3m">3 دقائق</option>
+            <option value="5m">5 دقائق</option>
+          </select>
+          <button class="primary-btn" id="eo-analyze-selected" type="button" disabled>حلّل الأصل المحدد</button>
+        </div>
+        <div class="eo-analysis-result" id="eo-analysis-result" aria-live="polite">اختر أصلاً لعرض حالة توفر بياناته.</div>
+        <p class="scanner-disclaimer">OTC وSmarty والمؤشرات الاصطناعية تحتاج بيانات مباشرة موثوقة من المنصة. لن نعرض إشارة أو نسبة ثقة إذا لم تتوفر البيانات.</p>
+      </section>
+
       <section class="panel scanner-panel" id="scanner-panel">
         <div class="panel-head">
           <h2 data-i18n="scan.title">ماسح الأسواق الكامل</h2>

@@ -196,9 +196,9 @@ Telegram يُحدّث وضع الموقع تلقائياً والعكس. لوح�
 
 كل الأوضاع تمر بنفس فحوص المخاطر والسبريد ومنع التكرار؛ السرعة لا تلغي الحماية.
 
-## 9. Gemini
+## 9. AI review (Mistral primary, Gemini optional)
 
-عند وجود `GEMINI_API_KEY` تُرسَل الإشارة المرشّحة للمراجعة. verdict = `REJECT` يمنع التنفيذ؛
+عند وجود `MISTRAL_API_KEY` تُرسَل الإشارة المرشّحة إلى Mistral لمراجعتها؛ وإذا لم يوجد المفتاح يستخدم النظام Gemini النصي عند توفره. verdict = `REJECT` يمنع التنفيذ؛
 `AGREE` / `CAUTION` تُسجَّل في السجل. غياب المفتاح لا يوقف البوت (تحليل قواعد فقط).
 
 ---
@@ -211,7 +211,7 @@ Telegram يُحدّث وضع الموقع تلقائياً والعكس. لوح�
 - **Start Command:** `npm start`
 - **Health Check:** `/api/health`
 
-`render.yaml` جاهز. للأسرار استخدم Environment Variables: `GEMINI_API_KEY`، `TELEGRAM_BOT_TOKEN`،
+`render.yaml` جاهز. للأسرار استخدم Environment Variables: `MISTRAL_API_KEY`، `GEMINI_API_KEY` (اختياري لتحليل الصور)، `TELEGRAM_BOT_TOKEN`،
 `TELEGRAM_CHAT_ID`، و`DATABASE_URL` إن أردت PostgreSQL.
 
 **قيود تشغيلية:** خطة Render المجانية تنام بعد عدم النشاط ولا تضمن تشغيلاً متواصلاً 24/7،
@@ -280,3 +280,7 @@ approved public trading API, so it is analysis and alerts only.
 - يتطلب ضبط `GEMINI_API_KEY` في بيئة التشغيل.
 
 **مهم:** ماسح الأسعار الآلي يظل محصوراً بالأصول التي لها بيانات عامة موثوقة. لا تُضاف أصول OTC/Smarty إلى المسح الحي إلا عند توفر مصدر بيانات رسمي وموثوق لها. لا توجد إشارة مضمونة.
+
+
+### إعداد Mistral
+ضع `MISTRAL_API_KEY` في Render Environment Variables ليكون Mistral محرك مراجعة الإشارات التلقائية. النموذج الافتراضي `mistral-small-latest`. لا تضع المفتاح في الواجهة أو GitHub. تحليل صور الشارت ما زال يستخدم Gemini Vision اختيارياً ويتطلب `GEMINI_API_KEY`.

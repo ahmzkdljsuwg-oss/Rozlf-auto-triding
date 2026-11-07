@@ -144,4 +144,83 @@ class GeminiAnalyzer {
 
 }
 
-module.exports = { GeminiAnalyzer };
+class MistralAnalyzer {
+  constructor(apiKey = config.MISTRAL_API_KEY, model = config.MISTRAL_MODEL) {
+    this.apiKey = apiKey;
+    this.model = model;
+  }
+
+  get enabled() { return Boolean(this.apiKey); }
+
+  async review(signal, marketContext = {}) {
+    if (!this.enabled) return { verdict: 'UNAVAILABLE', confidence: null, rationale: 'Mistral API key not configured', enabled: false };
+    const payload = {
+      symbol: signal.symbol, timeframe: signal.timeframe, side: signal.side,
+      confidence: signal.confidence, entry: signal.entry, stop_loss: signal.stop_loss,
+      take_profit: signal.take_profit, atr: signal.atr, checks: signal.checks,
+      structure: signal.structure || signal.analysis?.structure || {},
+      indicators_by_timeframe: signal.analysis?.indicators || {},
+      candle_timestamps: signal.analysis?.timestamps || {}, context: marketContext,
+    };
+    const prompt = [
+      'You are the second-stage risk reviewer for ROZLF.',
+      'Review only the supplied deterministic signal and verified market data.',
+      'Check trend, timeframe agreement, support/resistance, RSI, MACD, EMA, Bollinger, ATR and SMC evidence.',
+      'Never invent prices, indicators, candles, market access or outcomes. Reject contradictory or incomplete setups.',
+      'Return JSON only: {"verdict":"AGREE|CAUTION|REJECT","confidence":0-1,"rationale":"short reason","reasons":[],"risk_notes":[]}',
+      JSON.stringify(payload).slice(0, 14000),
+    ].join('\n');
+    try {
+      const response = await fetch('https://api.mistral.ai/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${this.apiKey}` },
+        body: JSON.stringify({ model: this.model, temperature: 0.1, max_tokens: 500,
+          response_format: { type: 'json_object' },
+          messages: [
+            { role: 'system', content: 'You are a cautious trading risk reviewer. Output valid JSON only.' },
+            { role: 'user', content: prompt },
+          ] }),
+        signal: AbortSignal.timeout(30000),
+      });
+      if (!response.ok) {
+        const detail = (await response.text()).slice(0, 160);
+        return { verdict: 'UNAVAILABLE', confidence: null, rationale: `Mistral HTTP ${response.status}: ${detail}`, enabled: true };
+      }
+      const data = await response.json();
+      let raw = data?.choices?.[0]?.message?.content || '';
+      if (Array.isArray(raw)) raw = raw.map(x => x.text || '').join('');
+      raw = String(raw).replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim();
+      const parsed = JSON.parse(raw);
+      const verdict = String(parsed.verdict || '').toUpperCase();
+      if (!['AGREE', 'CAUTION', 'REJECT'].includes(verdict)) {
+        return { verdict: 'UNAVAILABLE', confidence: null, rationale: 'Mistral returned no valid verdict', enabled: true };
+      }
+      const confidence = Number(parsed.confidence);
+      return {
+        verdict,
+        confidence: Number.isFinite(confidence) ? Math.max(0, Math.min(1, confidence)) : null,
+        rationale: String(parsed.rationale || '').slice(0, 400),
+        reasons: Array.isArray(parsed.reasons) ? parsed.reasons.slice(0, 6).map(x => String(x).slice(0, 200)) : [],
+        risk_notes: Array.isArray(parsed.risk_notes) ? parsed.risk_notes.slice(0, 4).map(x => String(x).slice(0, 200)) : [],
+        enabled: true,
+      };
+    } catch (err) {
+      return { verdict: 'UNAVAILABLE', confidence: null, rationale: `Mistral unavailable: ${err.message}`, enabled: true };
+    }
+  }
+}
+
+class RozlfAnalyzer {
+  constructor() {
+    this.primary = config.MISTRAL_API_KEY ? new MistralAnalyzer() : new GeminiAnalyzer();
+    this.vision = new GeminiAnalyzer();
+  }
+  get enabled() { return this.primary.enabled; }
+  review(signal, context) { return this.primary.review(signal, context); }
+  analyzeChartImage(args) {
+    if (!this.vision.enabled) throw new Error('Image analysis requires GEMINI_API_KEY; Mistral is currently used for automatic signal review.');
+    return this.vision.analyzeChartImage(args);
+  }
+}
+
+module.exports = { GeminiAnalyzer, MistralAnalyzer, RozlfAnalyzer };

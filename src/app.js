@@ -69,7 +69,7 @@ function createApp({ engine }) {
       simulated_mt5_allowed: config.ALLOW_SIMULATED_MT5,
       speeds: ['slow', 'medium', 'fast'],
       default_speed: 'medium',
-      ai_enabled: Boolean(config.GEMINI_API_KEY),
+      ai_enabled: Boolean(config.MISTRAL_API_KEY || config.GEMINI_API_KEY),
       telegram_enabled: Boolean(config.TELEGRAM_BOT_TOKEN && config.TELEGRAM_CHAT_ID),
       disclaimer: config.DISCLAIMER,
     });
@@ -179,6 +179,28 @@ function createApp({ engine }) {
     } catch (err) {
       return fail(res, 422, String(err.message));
     }
+  });
+
+  app.post('/api/expertoption/auto-analysis', async (req, res) => {
+    const body = req.body || {};
+    const allowedAssets = new Set([
+      'ai-index', 'cricket-index', 'stock', 'eurusd-otc', 'usdjpy-otc', 'gbpusd-otc',
+      'football-index', 'luxury-index', 'smarty', 'usdchf-otc', 'silver-otc', 'nzdusd-otc',
+    ]);
+    const allowedExpiries = new Set(['30s', '1m', '2m', '3m', '5m']);
+    if (!allowedAssets.has(String(body.asset_id || ''))) return fail(res, 422, 'اختر أصلاً من قائمة ExpertOption.');
+    if (!allowedExpiries.has(String(body.expiry || ''))) return fail(res, 422, 'مدة التحليل غير مدعومة.');
+    if (!engine.account || engine.platform !== 'expertoption') {
+      return fail(res, 409, 'اتصل بجلسة ExpertOption أولاً.');
+    }
+    await engine.db.addLog('info', 'expertoption_analysis', 'Automatic analysis requested without an approved platform feed', {
+      asset_id: String(body.asset_id), expiry: String(body.expiry),
+    });
+    return res.status(424).json({
+      detail: 'تم اختيار الأصل والمدة، لكن لا تتوفر حالياً واجهة بيانات مباشرة ومصرّح بها لقراءة أسعار هذا الأصل من ExpertOption. لم يتم إنشاء إشارة أو نسبة ثقة. نحتاج مصدراً مباشراً موثوقاً قبل تفعيل التحليل التلقائي.',
+      asset_id: String(body.asset_id), expiry: String(body.expiry),
+      signal: 'NO TRADE', data_verified: false, gemini_reviewed: false,
+    });
   });
 
   app.get('/api/scanner', async (req, res) => {

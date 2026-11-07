@@ -1,22 +1,25 @@
 :root {
-  --bg: #f5f8fc;
-  --bg-soft: #eef5fb;
-  --surface: #ffffff;
-  --ink: #0e1b2c;
-  --muted: #64748b;
-  --muted-2: #94a3b8;
-  --line: #e3edf7;
-  --blue: #1268f0;
-  --blue-deep: #0b4fd1;
-  --cyan: #0e9bb5;
-  --green: #00a080;
-  --red: #e03050;
-  --amber: #d97706;
+  --bg: #090e1a;
+  --bg-soft: #101a2d;
+  --surface: #141e32;
+  --ink: #f2f5fb;
+  --muted: #9aa8bd;
+  --muted-2: #77869d;
+  --line: #263550;
+  --blue: #f2c230;
+  --blue-deep: #d6a514;
+  --cyan: #e6b92d;
+  --green: #18bd91;
+  --red: #e45465;
+  --amber: #e5b52d;
+  --border: var(--line);
+  --text: var(--ink);
+  --surface-2: var(--bg-soft);
   --shadow-sm: 0 2px 10px -4px rgba(24, 58, 99, .12);
   --shadow: 0 24px 60px -32px rgba(23, 64, 112, .38);
   --radius: 22px;
   --radius-sm: 14px;
-  --grad: linear-gradient(135deg, #0b4fd1 0%, #1268f0 55%, #0e9bb5 100%);
+  --grad: linear-gradient(135deg, #d6a514 0%, #f2c230 55%, #e6b92d 100%);
   --font: "Manrope", "Tajawal", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
@@ -569,3 +572,6 @@ button.system-item:hover { border-color: #d7e6fb; }
 .image-analysis-result .analysis-direction{font-size:1.2rem;font-weight:800}
 .image-analysis-result ul{padding-inline-start:22px;margin:6px 0}
 .image-analysis-result .analysis-warning{font-size:.86rem;opacity:.8;margin-top:10px}
+
+/* ExpertOption automatic-analysis asset picker */
+.eo-assets{display:grid;grid-template-columns:1fr;gap:9px;margin:14px 0}.eo-asset{display:flex;align-items:center;gap:12px;width:100%;padding:13px 14px;border:1px solid var(--border);border-radius:15px;background:var(--surface-2);color:var(--text);text-align:start;cursor:pointer}.eo-asset.active{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset}.eo-asset-icon{width:38px;height:38px;display:grid;place-items:center;border-radius:11px;background:var(--surface);font-size:21px;flex:0 0 auto}.eo-asset-copy{display:flex;flex:1;flex-direction:column;gap:3px}.eo-asset-copy small{color:var(--muted)}.eo-asset-state{font-size:11px;color:var(--muted);white-space:nowrap}.eo-expiry-wrap{display:grid;gap:10px}.eo-expiry-wrap select{width:100%;min-height:46px;border:1px solid var(--border);border-radius:12px;padding:10px;background:var(--surface-2);color:var(--text)}.eo-analysis-result{margin-top:12px;padding:14px;border:1px solid var(--border);border-radius:14px;background:var(--surface-2);line-height:1.7}.eo-analysis-result.error{border-color:#b45353;color:#c66}.eo-analysis-result.ok{border-color:#279b75}

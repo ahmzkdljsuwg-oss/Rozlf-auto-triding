@@ -11,7 +11,7 @@ const { PaperBroker } = require('./brokers/paper');
 const { MT5Broker } = require('./brokers/mt5');
 const { ExpertOptionBroker } = require('./brokers/expertoption');
 const { ExpertOptionSession, SOURCE_REASON_EN, SOURCE_REASON_AR } = require('./expertoption-session');
-const { GeminiAnalyzer } = require('./ai');
+const { RozlfAnalyzer } = require('./ai');
 const { TelegramNotifier } = require('./telegram');
 const { renderTradeChart, renderResultChart } = require('./charts');
 const { utcnow } = require('./db');
@@ -27,7 +27,7 @@ class TradingEngine {
     this.market = options.market || new MarketDataService();
     this.scanner = new MarketScanner({ market: this.market });
     this.telegram = options.telegram || new TelegramNotifier();
-    this.analyzer = options.analyzer || new GeminiAnalyzer();
+    this.analyzer = options.analyzer || new RozlfAnalyzer();
     this.chartDir = options.chartDir || config.CHART_DIR;
 
     this.account = null;
@@ -949,9 +949,9 @@ class TradingEngine {
           today_trades: today.length,
           today_pnl: todayPnl,
         });
-        await this.db.addLog('info', 'ai', `Gemini ${review.verdict}: ${review.rationale}`);
+        await this.db.addLog('info', 'ai', `AI ${review.verdict}: ${review.rationale}`);
         if (review.verdict === 'REJECT') {
-          await this.db.addLog('warn', 'ai', `Trade blocked by Gemini on ${signal.symbol}`);
+          await this.db.addLog('warn', 'ai', `Trade blocked by AI on ${signal.symbol}`);
           await this.sendAnalysisAlert(signal, 'Gemini rejected the setup', spreadPips);
           continue;
         }
