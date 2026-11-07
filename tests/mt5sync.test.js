@@ -68,11 +68,23 @@ function createMockBridge() {
         take_profit: body.take_profit, pnl: 0, opened_at: new Date().toISOString(),
       };
       state.orders.push({ ticket, body });
-      return send({ ok: true, accepted: true, ticket, fill_price: 1.1010, message: 'accepted' });
+      return send({
+        ok: true, accepted: true, ticket, fill_price: 1.1010, message: 'accepted',
+        account: {
+          login: '900123', server: 'MetaQuotes-Demo', is_demo: true,
+          balance: state.balance, equity: state.equity,
+        },
+      });
     }
     if (url.pathname === '/close') {
       state.position = null;
-      return send({ ok: true, accepted: true, ticket: body.order_id, fill_price: 1.1060 });
+      return send({
+        ok: true, accepted: true, ticket: body.order_id, fill_price: 1.1060,
+        account: {
+          login: '900123', server: 'MetaQuotes-Demo', is_demo: true,
+          balance: state.balance, equity: state.equity,
+        },
+      });
     }
     if (url.pathname === '/history') {
       if (!state.closed) return send({ ok: true, found: false });

@@ -13,6 +13,7 @@ const { GeminiAnalyzer } = require('./ai');
 const { TelegramNotifier } = require('./telegram');
 const { renderTradeChart, renderResultChart } = require('./charts');
 const { utcnow } = require('./db');
+const { getSpeedPreset, isSpeedMode, DEFAULT_SPEED } = require('./speed');
 
 const RISK_KEYS = Object.keys(DEFAULTS);
 const ALERT_COOLDOWN_MS = 30 * 60 * 1000;
@@ -32,6 +33,8 @@ class TradingEngine {
     this.accountType = null;
     this.running = false;
     this.emergency = false;
+    this.speed = DEFAULT_SPEED;
+    this._lastOpportunityNotice = new Map();
     this.lastScanAt = null;
     this.lastError = null;
     this.marketConnected = false;
@@ -72,7 +75,31 @@ class TradingEngine {
       if (value === null) await this.db.setSetting(`risk.${key}`, DEFAULTS[key]);
     }
     this.risk = new RiskManager(stored);
+    const speed = await this.db.getSetting('trading.speed', null);
+    this.speed = isSpeedMode(speed) ? speed : DEFAULT_SPEED;
+    if (speed === null) await this.db.setSetting('trading.speed', this.speed);
     return stored;
+  }
+
+  get speedPreset() {
+    return getSpeedPreset(this.speed);
+  }
+
+  async setSpeed(mode, { source = 'site', notify = true } = {}) {
+    if (!isSpeedMode(mode)) throw new Error('Speed must be slow, medium or fast');
+    this.speed = mode;
+    await this.db.setSetting('trading.speed', mode);
+    await this.db.addLog('info', 'engine', `Trading speed set to ${mode}`, { source });
+    this._nextDelayMs = getSpeedPreset(mode).scan_interval_seconds * 1000;
+    if (this._timer) {
+      clearTimeout(this._timer);
+      this._timer = null;
+      if (this.running) this._schedule(0);
+    }
+    if (notify && source !== 'telegram' && this.telegram.enabled) {
+      await this.telegram.notifySpeedChanged(mode);
+    }
+    return this.speedPreset;
   }
 
   async updateRiskSettings(values) {
@@ -110,6 +137,14 @@ class TradingEngine {
     } else if (platform === 'mt5' && MT5Broker.enabled()) {
       broker = new MT5Broker({ isDemo: true });
       mode = 'live_bridge';
+    } else if (platform === 'mt5' && config.ALLOW_SIMULATED_MT5) {
+      broker = new PaperBroker(config.DEMO_START_BALANCE, this.market);
+      mode = 'simulated';
+    } else if (platform === 'mt5') {
+      throw new Error(
+        'MT5 execution needs MT5_ENABLED=true and a reachable Windows MT5 bridge. '
+        + 'No simulated MT5 trades are recorded unless ALLOW_SIMULATED_MT5=true is set deliberately.',
+      );
     } else {
       broker = new PaperBroker(config.DEMO_START_BALANCE, this.market);
       mode = 'simulated';
@@ -201,6 +236,17 @@ class TradingEngine {
     this.running = true;
     this._started = true;
     await this.db.addLog('info', 'engine', 'Bot started');
+    if (this.telegram.enabled) {
+      const sent = await this.telegram.notifyBotStarted({
+        accountType: this.accountType,
+        login: this.account ? this.account.login : '',
+        server: this.account ? this.account.server : '',
+        speed: this.speed,
+        executionMode: this.executionMode,
+        connected: this.accountFresh(),
+      });
+      if (!sent.ok) await this.db.addLog('warn', 'telegram', `Start notification failed: ${sent.error}`);
+    }
     if (!this._timer) {
       this._schedule(0);
     }
@@ -365,6 +411,8 @@ class TradingEngine {
       running: this.running,
       scan_count: this.scanCount,
       scanning: this._busy,
+      speed: this.speed,
+      speed_preset: this.speedPreset,
       telegram_enabled: this.telegram.enabled,
       today_pnl: todayPnl,
       today_trades: todayTrades.length,
@@ -614,9 +662,15 @@ class TradingEngine {
       try {
         const snaps = await this.loadSnapshots(symbol);
         fetched += 1;
-        const signal = buildSignal(symbol, 'M5', snaps);
+        const signal = buildSignal(symbol, 'M5', snaps, {
+          minConfidence: this.speedPreset.min_confidence,
+          requireH4: this.speedPreset.require_h4,
+        });
         this.publishOpportunity(signal);
-        if (signal.side === 'BUY' || signal.side === 'SELL') candidates.push({ signal, snaps });
+        if (signal.side === 'BUY' || signal.side === 'SELL') {
+          candidates.push({ signal, snaps });
+          await this.notifyOpportunity(signal, this.market.spreadPips(signal.symbol, signal.atr));
+        }
       } catch (err) {
         errors.push(`${symbol}: ${err.message}`);
         await this.db.addLog('warn', 'market', `Scan skipped ${symbol}: ${err.message}`);
@@ -625,6 +679,7 @@ class TradingEngine {
 
     this.scanCount += 1;
     this.lastScanAt = utcnow();
+    this._nextDelayMs = this.speedPreset.scan_interval_seconds * 1000;
     this.marketConnected = fetched > 0;
     this.lastError = fetched === 0
       ? `No fresh market data. ${errors.slice(0, 2).join('; ')}`.slice(0, 300)
@@ -632,7 +687,6 @@ class TradingEngine {
 
     if (!candidates.length || !this.running || this.emergency) return;
     candidates.sort((a, b) => b.signal.confidence - a.signal.confidence);
-    this._nextDelayMs = 10000;
 
     const open = await this.db.openTrades(this.account.id);
     const today = await this.db.tradesToday(this.account.id);
@@ -657,6 +711,7 @@ class TradingEngine {
         marginLevel: this.marginLevel,
         emergencyStop: this.emergency,
         running: this.running,
+        minConfidence: this.speedPreset.min_confidence,
       });
 
       if (!decision.allowed) {
@@ -685,6 +740,28 @@ class TradingEngine {
 
       await this.executeTrade({ signal, snaps, decision, spreadPips });
       return;
+    }
+  }
+
+  async notifyOpportunity(signal, spreadPips) {
+    if (!this.telegram.enabled) return;
+    const fingerprint = `${signal.side}|${signal.entry}|${signal.stop_loss}|${signal.take_profit}|${signal.timeframe}`;
+    const previous = this._lastOpportunityNotice.get(signal.symbol);
+    if (previous && previous.fingerprint === fingerprint && Date.now() - previous.at < 15 * 60 * 1000) {
+      return;
+    }
+    this._lastOpportunityNotice.set(signal.symbol, { fingerprint, at: Date.now() });
+    const sent = await this.telegram.notifyOpportunity(signal, spreadPips);
+    if (!sent.ok) await this.db.addLog('warn', 'telegram', `Opportunity notification failed: ${sent.error}`);
+  }
+
+  async notifyExecutionFailure(signal, reason) {
+    const message = String(reason || 'MT5 did not confirm the order').slice(0, 300);
+    this.lastError = message;
+    await this.db.addLog('error', 'trade', `Execution failed ${signal.symbol}: ${message}`).catch(() => {});
+    if (this.telegram.enabled) {
+      const sent = await this.telegram.notifyExecutionFailure(signal, message);
+      if (!sent.ok) await this.db.addLog('warn', 'telegram', `Failure notification failed: ${sent.error}`);
     }
   }
 
@@ -728,23 +805,31 @@ class TradingEngine {
         signal.symbol, signal.side, decision.lot, signal.stop_loss, signal.take_profit, signal.entry,
       );
     } catch (err) {
-      this.lastError = `Order error ${signal.symbol}: ${err.message}`.slice(0, 300);
-      await this.db.addLog('error', 'trade', this.lastError);
+      await this.notifyExecutionFailure(signal, `Order error: ${err.message}`);
       return null;
     }
     if (!order.accepted) {
-      await this.db.addLog('warn', 'trade', `Broker rejected ${signal.symbol}: ${order.message}`);
+      await this.notifyExecutionFailure(signal, order.message || 'Broker rejected the order');
       return null;
     }
     if (!order.order_id) {
-      await this.db.addLog('error', 'trade', `Broker accepted ${signal.symbol} without a ticket; trade not recorded`);
+      await this.notifyExecutionFailure(signal, 'Broker accepted without a ticket; trade not recorded');
       return null;
     }
     if (this.broker.supportsPositions) {
       const verified = await this.broker.verifyPosition(order.order_id);
       if (!verified) {
-        this.lastError = `MT5 did not confirm ticket ${order.order_id}; trade not recorded`;
-        await this.db.addLog('error', 'trade', this.lastError);
+        await this.notifyExecutionFailure(
+          signal, `MT5 did not confirm ticket ${order.order_id}; trade not recorded`,
+        );
+        return null;
+      }
+      const mismatch = String(verified.symbol || '').toUpperCase() !== String(signal.symbol).toUpperCase()
+        || String(verified.side || '').toUpperCase() !== String(signal.side).toUpperCase();
+      if (mismatch) {
+        await this.notifyExecutionFailure(
+          signal, `MT5 confirmed ticket ${order.order_id} with unexpected ${verified.symbol} ${verified.side}`,
+        );
         return null;
       }
     }
@@ -789,12 +874,14 @@ class TradingEngine {
     await this.db.addLog('info', 'trade', `Opened ${signal.symbol} ${signal.side} ${decision.lot} at ${entryPrice}`, {
       order_id: order.order_id, confidence: signal.confidence, mode: this.executionMode,
     });
+    if (this.broker.supportsPositions) {
+      await this.syncAccount();
+      await this.syncBrokerTrades();
+    }
     if (this.telegram.enabled) {
       const sent = await this.telegram.notifyOpen({ ...trade, account_type: this.accountType }, chartPath);
       if (!sent.ok) await this.db.addLog('warn', 'telegram', `Open notification failed: ${sent.error}`);
     }
-    await this.syncAccount();
-    if (this.broker.supportsPositions) await this.syncBrokerTrades();
     return trade;
   }
 

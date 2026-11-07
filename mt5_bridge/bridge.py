@@ -266,22 +266,31 @@ async def order(request: Request) -> JSONResponse:
     result = mt5.order_send(request_payload)
     if result is None:
         return _json(502, {"ok": True, "accepted": False, "message": f"order_send failed: {mt5.last_error()}"})
-    if result.retcode not in (mt5.TRADE_RETCODE_DONE, mt5.TRADE_RETCODE_PLACED):
+    if result.retcode != mt5.TRADE_RETCODE_DONE:
         return _json(200, {
             "ok": True, "accepted": False,
+            "retcode": int(result.retcode),
             "message": f"MT5 retcode {result.retcode}: {result.comment}",
         })
     ticket = str(result.order)
     opened = mt5.positions_get(ticket=result.order) or []
-    position = opened[0] if opened else None
-    price = float(result.price) if result.price else fill_price
+    if not opened:
+        return _json(200, {
+            "ok": True, "accepted": False,
+            "retcode": int(result.retcode),
+            "message": f"MT5 reported retcode DONE but position {ticket} is not open",
+        })
+    position = opened[0]
+    after = mt5.account_info()
     return _json(200, {
         "ok": True,
         "accepted": True,
-        "ticket": str(position.ticket) if position else ticket,
+        "ticket": str(position.ticket),
         "order_id": ticket,
-        "fill_price": float(position.price_open) if position else price,
-        "message": "MT5 order accepted",
+        "fill_price": float(position.price_open),
+        "retcode": int(result.retcode),
+        "account": _account_payload(after) if after is not None else None,
+        "message": "MT5 order accepted and position confirmed",
     })
 
 
@@ -316,13 +325,23 @@ async def close(request: Request) -> JSONResponse:
     result = mt5.order_send(request_payload)
     if result is None:
         return _json(502, {"ok": True, "accepted": False, "message": f"close failed: {mt5.last_error()}"})
-    if result.retcode not in (mt5.TRADE_RETCODE_DONE, mt5.TRADE_RETCODE_PLACED):
+    if result.retcode != mt5.TRADE_RETCODE_DONE:
         return _json(200, {
             "ok": True, "accepted": False,
+            "retcode": int(result.retcode),
             "message": f"MT5 retcode {result.retcode}: {result.comment}",
         })
+    if mt5.positions_get(ticket=ticket):
+        return _json(200, {
+            "ok": True, "accepted": False,
+            "retcode": int(result.retcode),
+            "message": f"MT5 reported retcode DONE but position {ticket} is still open",
+        })
+    after = mt5.account_info()
     return _json(200, {
         "ok": True, "accepted": True, "ticket": str(ticket),
         "fill_price": float(result.price) if result.price else request_payload["price"],
-        "message": "MT5 close accepted",
+        "retcode": int(result.retcode),
+        "account": _account_payload(after) if after is not None else None,
+        "message": "MT5 close accepted and position removed",
     })

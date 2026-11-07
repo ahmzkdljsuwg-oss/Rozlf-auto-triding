@@ -3,6 +3,7 @@
 process.env.DASHBOARD_TOKEN = '';
 process.env.REAL_TRADING_APPROVED = 'false';
 process.env.MT5_ENABLED = 'false';
+process.env.ALLOW_SIMULATED_MT5 = 'true';
 
 const test = require('node:test');
 const assert = require('node:assert/strict');

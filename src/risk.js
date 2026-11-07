@@ -30,7 +30,7 @@ class RiskManager {
     signal, balance, equity, openTrades = [], todayTrades = [],
     todayPnl = 0, spreadPips = 0, dataFresh = true, connected = true,
     accountSynced = true, freeMargin = null, marginLevel = null,
-    emergencyStop = false, running = true,
+    emergencyStop = false, running = true, minConfidence = null,
   }) {
     const riskPercent = this.get('risk_percent');
     const reject = (reason) => ({
@@ -48,9 +48,13 @@ class RiskManager {
     }
 
     const confidence = Number(signal.confidence || 0);
+    const threshold = Math.max(
+      this.get('min_confidence'),
+      Number.isFinite(Number(minConfidence)) ? Number(minConfidence) : 0,
+    );
     if (signal.side !== 'BUY' && signal.side !== 'SELL') return reject('Signal is NO TRADE');
-    if (confidence < this.get('min_confidence')) {
-      return reject(`Confidence ${confidence.toFixed(2)} below ${this.get('min_confidence')}`);
+    if (confidence < threshold) {
+      return reject(`Confidence ${confidence.toFixed(2)} below ${threshold}`);
     }
 
     if (openTrades.length >= this.get('max_open_trades')) {

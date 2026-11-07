@@ -65,6 +65,9 @@ function createApp({ engine }) {
       mt5_enabled: config.MT5_ENABLED && Boolean(config.MT5_BRIDGE_URL),
       expertoption_execution: false,
       real_trading_approved: config.REAL_TRADING_APPROVED,
+      simulated_mt5_allowed: config.ALLOW_SIMULATED_MT5,
+      speeds: ['slow', 'medium', 'fast'],
+      default_speed: 'medium',
       ai_enabled: Boolean(config.GEMINI_API_KEY),
       telegram_enabled: Boolean(config.TELEGRAM_BOT_TOKEN && config.TELEGRAM_CHAT_ID),
       disclaimer: config.DISCLAIMER,
@@ -163,6 +166,20 @@ function createApp({ engine }) {
     engine.emergency = false;
     await engine.db.addLog('info', 'risk', 'Emergency stop cleared by operator');
     res.json(await engine.status());
+  });
+
+  app.get('/api/speed', (req, res) => {
+    res.json({ speed: engine.speed, preset: engine.speedPreset });
+  });
+
+  app.post('/api/speed', async (req, res) => {
+    try {
+      const mode = String((req.body || {}).speed || '');
+      const preset = await engine.setSpeed(mode, { source: 'site' });
+      res.json({ speed: preset.id, preset });
+    } catch (err) {
+      return fail(res, 422, String(err.message));
+    }
   });
 
   app.get('/api/risk', async (req, res) => {

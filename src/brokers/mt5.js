@@ -107,9 +107,19 @@ class MT5Broker {
     if (data.is_demo === false && this.isDemo) {
       throw new BrokerError('The MT5 account is a real account; only demo accounts are enabled');
     }
+    const actualLogin = String(data.login || '').trim();
+    const actualServer = String(data.server || '').trim();
+    if (actualLogin && actualLogin !== String(login).trim()) {
+      throw new BrokerError(`MT5 opened account ${actualLogin}, not the requested ${login}`);
+    }
+    if (server && actualServer && actualServer.toLowerCase() !== String(server).trim().toLowerCase()) {
+      throw new BrokerError(`MT5 server is ${actualServer}, not the requested ${server}`);
+    }
     this.connected = true;
-    this.login = String(login);
-    this.server = String(server || data.server || '');
+    this.login = actualLogin || String(login);
+    this.server = actualServer || String(server || '');
+    this.expectedLogin = this.login;
+    this.expectedServer = String(server || actualServer || '');
     return this.accountInfo();
   }
 
@@ -131,6 +141,25 @@ class MT5Broker {
     if (!Number.isFinite(balance) || !Number.isFinite(equity)) {
       throw new BrokerError('MT5 bridge returned an invalid account snapshot');
     }
+    if (this.isDemo && data.is_demo === false) {
+      this.connected = false;
+      throw new BrokerError('The MT5 bridge switched to a real account; trading is blocked');
+    }
+    if (this.expectedLogin && String(data.login || '') !== this.expectedLogin) {
+      this.connected = false;
+      throw new BrokerError(
+        `MT5 account changed from ${this.expectedLogin} to ${data.login}; trading is blocked`,
+      );
+    }
+    if (this.expectedServer && data.server
+      && String(data.server).toLowerCase() !== this.expectedServer.toLowerCase()) {
+      this.connected = false;
+      throw new BrokerError(
+        `MT5 server changed from ${this.expectedServer} to ${data.server}; trading is blocked`,
+      );
+    }
+    this.login = String(data.login || this.login);
+    this.server = String(data.server || this.server);
     this.connected = true;
     return accountInfo({
       login: data.login || this.login, server: data.server || this.server,
@@ -182,6 +211,25 @@ class MT5Broker {
     return price;
   }
 
+  checkExecutionAccount(data) {
+    const account = data && data.account;
+    if (!account) throw new BrokerError('MT5 execution response did not include an account snapshot');
+    if (this.isDemo && account.is_demo === false) {
+      throw new BrokerError('MT5 executed on a real account; trading is blocked');
+    }
+    if (this.expectedLogin && String(account.login || '') !== this.expectedLogin) {
+      throw new BrokerError(
+        `MT5 executed on account ${account.login}, expected ${this.expectedLogin}`,
+      );
+    }
+    if (this.expectedServer && account.server
+      && String(account.server).toLowerCase() !== this.expectedServer.toLowerCase()) {
+      throw new BrokerError(
+        `MT5 executed on server ${account.server}, expected ${this.expectedServer}`,
+      );
+    }
+  }
+
   async openOrder(symbol, side, lot, stopLoss = 0, takeProfit = 0, referencePrice = null) {
     if (!this.connected) throw new BrokerError('MT5 account not connected');
     const data = await this.request('POST', '/order', {
@@ -196,6 +244,7 @@ class MT5Broker {
     if (!ticket || !(fill > 0)) {
       return executionResult(false, '', 0, 'MT5 did not confirm a ticket and fill price');
     }
+    this.checkExecutionAccount(data);
     return executionResult(true, ticket, fill, data.message || 'MT5 order accepted');
   }
 
@@ -221,6 +270,7 @@ class MT5Broker {
     }
     const closePrice = Number(data.fill_price || data.price || 0);
     if (!(closePrice > 0)) throw new BrokerError('MT5 did not confirm a close price');
+    this.checkExecutionAccount(data);
     return executionResult(true, String(orderId), closePrice, 'MT5 close accepted');
   }
 }

@@ -31,7 +31,7 @@ class TelegramNotifier {
     return Boolean(this.token && this.chatId);
   }
 
-  async api(method, payload) {
+  async api(method, payload, timeoutMs = 20000) {
     if (!this.enabled) return { ok: false, error: 'Telegram is not configured' };
     const url = `https://api.telegram.org/bot${this.token}/${method}`;
     try {
@@ -39,7 +39,7 @@ class TelegramNotifier {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(20000),
+        signal: AbortSignal.timeout(timeoutMs),
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || data.ok === false) {
@@ -51,12 +51,76 @@ class TelegramNotifier {
     }
   }
 
-  async sendMessage(text) {
-    const result = await this.api('sendMessage', {
+  async sendMessage(text, replyMarkup = null) {
+    const payload = {
       chat_id: this.chatId, text: String(text).slice(0, 4000),
       parse_mode: 'HTML', disable_web_page_preview: true,
-    });
-    return result;
+    };
+    if (replyMarkup) payload.reply_markup = replyMarkup;
+    return this.api('sendMessage', payload);
+  }
+
+  speedKeyboard() {
+    return {
+      inline_keyboard: [[
+        { text: '🐢 بطيء', callback_data: 'speed:slow' },
+        { text: '⚖️ متوسط', callback_data: 'speed:medium' },
+        { text: '⚡ سريع', callback_data: 'speed:fast' },
+      ]],
+    };
+  }
+
+  async sendSpeedMenu(current = 'medium') {
+    const labels = { slow: '🐢 بطيء', medium: '⚖️ متوسط', fast: '⚡ سريع' };
+    return this.sendMessage(
+      `⚙️ <b>سرعة التداول</b>\nالوضع الحالي: <b>${labels[current] || current}</b>\nاختر الوضع المناسب:`,
+      this.speedKeyboard(),
+    );
+  }
+
+  async notifyBotStarted({ accountType, login, server, speed, executionMode, connected }) {
+    const labels = { slow: '🐢 بطيء', medium: '⚖️ متوسط', fast: '⚡ سريع' };
+    const modeNote = executionMode === 'simulated'
+      ? '\n⚠️ تنفيذ محاكى — ليست صفقات MT5 حقيقية'
+      : '\nالتنفيذ: MT5 عبر الجسر';
+    const text = [
+      '🟢 <b>تم بدء التحليل بنجاح</b>',
+      `• حالة الاتصال: ${connected ? 'متصل' : 'غير متصل'}`,
+      `• الحساب: ${escapeHtml(accountType === 'demo' ? 'MT5 Demo' : 'MT5')} ${escapeHtml(login || '')}${server ? ` — ${escapeHtml(server)}` : ''}`,
+      `• سرعة التداول: ${labels[speed] || escapeHtml(speed)}`,
+      '• حالة السوق: جاري المراقبة',
+      modeNote.trim(),
+      '',
+      'يمكنك تغيير السرعة في أي وقت من الأزرار أدناه.',
+    ].filter(Boolean).join('\n');
+    return this.sendMessage(text, this.speedKeyboard());
+  }
+
+  async notifySpeedChanged(speed) {
+    const labels = { slow: '🐢 بطيء', medium: '⚖️ متوسط', fast: '⚡ سريع' };
+    return this.sendMessage(
+      `✅ <b>تم تغيير سرعة التداول</b>\nالوضع الحالي: <b>${labels[speed] || escapeHtml(speed)}</b>`,
+      this.speedKeyboard(),
+    );
+  }
+
+  async notifyOpportunity(signal, spreadPips) {
+    return this.sendMessage([
+      `👀 <b>فرصة مرشحة — ${escapeHtml(signal.symbol)} ${escapeHtml(signal.timeframe)}</b>`,
+      `الاتجاه: <b>${escapeHtml(signal.side)}</b> | الثقة: ${Math.round(Number(signal.confidence || 0) * 100)}%`,
+      `الدخول: <code>${escapeHtml(signal.entry)}</code> | SL: <code>${escapeHtml(signal.stop_loss)}</code> | TP: <code>${escapeHtml(signal.take_profit)}</code>`,
+      `السبريد: ${Number(spreadPips || 0).toFixed(2)} نقطة`,
+      `السبب: ${escapeHtml(signal.reason_ar || signal.reason_en || '')}`,
+      'الحالة: قيد التحقق قبل التنفيذ',
+    ].join('\n'));
+  }
+
+  async notifyExecutionFailure(signal, reason) {
+    return this.sendMessage([
+      `⛔ <b>فشل تنفيذ الصفقة — ${escapeHtml(signal.symbol)} ${escapeHtml(signal.side)}</b>`,
+      `السبب: ${escapeHtml(reason)}`,
+      'لم يتم تسجيل أي صفقة على الموقع لأن MT5 لم يؤكد التنفيذ.',
+    ].join('\n'));
   }
 
   async sendPhoto(filePath, caption) {

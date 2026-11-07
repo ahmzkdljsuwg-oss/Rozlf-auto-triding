@@ -125,7 +125,10 @@ function noTrade(symbol, timeframe, confidence, reasonEn, reasonAr, extras = {})
   };
 }
 
-function buildSignal(symbol, timeframe, snaps) {
+function buildSignal(symbol, timeframe, snaps, options = {}) {
+  const minConfidence = Number.isFinite(Number(options.minConfidence))
+    ? Number(options.minConfidence) : config.DEFAULT_MIN_CONFIDENCE;
+  const requireH4 = Boolean(options.requireH4);
   const inds = {};
   for (const [tf, snap] of Object.entries(snaps)) inds[tf] = indicators.analyzeCandles(snap.candles);
 
@@ -204,6 +207,14 @@ function buildSignal(symbol, timeframe, snaps) {
     confidence *= 0.65;
   }
 
+  const h4Trend = inds.H4?.trend;
+  const againstH4 = requireH4 && h4Trend && h4Trend !== 'neutral' &&
+    (direction > 0 ? h4Trend !== 'bullish' : h4Trend !== 'bearish');
+  if (againstH4) {
+    conflict = true;
+    confidence *= 0.7;
+  }
+
   const checks = {
     adx: round(finite(adxVal), 2),
     atr: round(atr, 6),
@@ -237,15 +248,19 @@ function buildSignal(symbol, timeframe, snaps) {
     analysis.timestamps[tf] = snap.candles[snap.candles.length - 1].time;
   }
 
-  if (confidence < config.DEFAULT_MIN_CONFIDENCE || conflict || (adxVal && adxVal < 14)) {
+  if (confidence < minConfidence || conflict || (adxVal && adxVal < 14)) {
     return noTrade(
       symbol, timeframe, round(confidence, 3),
-      againstHigher
-        ? 'No trade: higher-timeframe trend opposes the setup'
-        : `No qualified setup: ${notesFor.slice(0, 3).join('/') || 'insufficient confluence'}`,
-      againstHigher
-        ? 'لا توجد صفقة: اتجاه الإطار الزمني الأعلى يعارض الإشارة'
-        : 'لا توجد فرصة مؤهلة: تقارب المؤشرات غير كافٍ',
+      againstH4
+        ? 'No trade: H4 trend opposes the setup (slow mode confirmation)'
+        : againstHigher
+          ? 'No trade: higher-timeframe trend opposes the setup'
+          : `No qualified setup: ${notesFor.slice(0, 3).join('/') || 'insufficient confluence'}`,
+      againstH4
+        ? 'لا توجد صفقة: اتجاه H4 يعارض الإشارة (تأكيد الوضع البطيء)'
+        : againstHigher
+          ? 'لا توجد صفقة: اتجاه الإطار الزمني الأعلى يعارض الإشارة'
+          : 'لا توجد فرصة مؤهلة: تقارب المؤشرات غير كافٍ',
       { atr: round(atr, 6), score: round(Math.max(bullScore, bearScore), 3), checks, analysis },
     );
   }

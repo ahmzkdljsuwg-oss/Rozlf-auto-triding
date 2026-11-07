@@ -105,6 +105,28 @@ test('MT5 and ExpertOption refuse execution without approved access', async () =
   await assert.rejects(() => eo.connect('1', 'x'), /no approved public trading API/);
 });
 
+test('MT5 execution account guard rejects wrong login, server and real accounts', () => {
+  const broker = new MT5Broker();
+  broker.isDemo = true;
+  broker.expectedLogin = '900123';
+  broker.expectedServer = 'MetaQuotes-Demo';
+  const ok = { account: { login: '900123', server: 'MetaQuotes-Demo', is_demo: true } };
+  assert.doesNotThrow(() => broker.checkExecutionAccount(ok));
+  assert.throws(() => broker.checkExecutionAccount({}), /account snapshot/);
+  assert.throws(
+    () => broker.checkExecutionAccount({ account: { login: '111', server: 'MetaQuotes-Demo' } }),
+    /expected 900123/,
+  );
+  assert.throws(
+    () => broker.checkExecutionAccount({ account: { login: '900123', server: 'Other-Demo' } }),
+    /expected MetaQuotes-Demo/,
+  );
+  assert.throws(
+    () => broker.checkExecutionAccount({ account: { login: '900123', server: 'MetaQuotes-Demo', is_demo: false } }),
+    /real account/,
+  );
+});
+
 test('human duration is readable', () => {
   const start = new Date(Date.now() - 90 * 60 * 1000).toISOString();
   assert.match(humanDuration(start), /^1h 30m$/);

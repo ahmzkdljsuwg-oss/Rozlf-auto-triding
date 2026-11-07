@@ -215,6 +215,12 @@
     toggle.disabled = s.emergency;
     $("#emergency-btn").disabled = s.emergency;
 
+    const speed = s.speed || "medium";
+    $$("[data-speed]").forEach((btn) => btn.classList.toggle("active", btn.dataset.speed === speed));
+    const preset = s.speed_preset || {};
+    $("#speed-note").textContent = t("speed." + speed) + " · " +
+      t("speed.scanEvery") + " " + (preset.scan_interval_seconds || 30) + "s";
+
     $("#risk-percent").textContent = (s.risk.risk_percent || 0) + "%";
     $("#daily-limit").textContent = fmtMoney(s.daily_loss_limit, s.currency);
     $("#max-open").textContent = s.risk.max_open_trades || 3;
@@ -440,6 +446,16 @@
     }
   }
 
+  async function changeSpeed(mode) {
+    try {
+      await api("/speed", { method: "POST", body: JSON.stringify({ speed: mode }) });
+      await refreshStatus();
+      toast(t("toast.speedChanged"), "success");
+    } catch (err) {
+      toast(err.message, "error");
+    }
+  }
+
   async function syncAccount() {
     const btn = $("#sync-account");
     if (btn) btn.disabled = true;
@@ -486,6 +502,7 @@
       input.type = showing ? "password" : "text";
       e.target.textContent = t(showing ? "login.show" : "login.hide");
     });
+    $$("[data-speed]").forEach((btn) => btn.addEventListener("click", () => changeSpeed(btn.dataset.speed)));
     $("#toggle-bot").addEventListener("click", toggleBot);
     $("#emergency-btn").addEventListener("click", emergency);
     $("#open-risk").addEventListener("click", openRisk);

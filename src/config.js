@@ -31,7 +31,7 @@ const config = {
   DATA_DIR,
   CHART_DIR,
   APP_NAME: 'ROZLF AUTO TRADER',
-  APP_VERSION: '2.1.0',
+  APP_VERSION: '2.2.0',
   PORT: Number(env('PORT', 8000)),
 
   SECRET_KEY: env('APP_SECRET_KEY', ''),
@@ -54,6 +54,9 @@ const config = {
   MT5_BRIDGE_TIMEOUT_MS: num('MT5_BRIDGE_TIMEOUT_MS', 15000),
   MT5_ACCOUNT_SYNC_MAX_AGE_SECONDS: Math.max(5, num('MT5_ACCOUNT_SYNC_MAX_AGE_SECONDS', 30)),
   TRADE_REENTRY_COOLDOWN_SECONDS: Math.max(0, num('TRADE_REENTRY_COOLDOWN_SECONDS', 300)),
+  // A deliberate opt-in for UI demos only. With the default false, MT5 demo
+  // login fails instead of silently recording paper trades that never reach MT5.
+  ALLOW_SIMULATED_MT5: bool('ALLOW_SIMULATED_MT5', false),
 
   SCAN_INTERVAL_SECONDS: Math.max(5, num('SCAN_INTERVAL_SECONDS', 30)),
   SYMBOLS: env('SYMBOLS', 'EURUSD,GBPUSD,USDJPY,AUDUSD,USDCAD,NZDUSD,XAUUSD')
