@@ -11,7 +11,7 @@ const { PaperBroker } = require('./brokers/paper');
 const { MT5Broker } = require('./brokers/mt5');
 const { ExpertOptionBroker } = require('./brokers/expertoption');
 const { ExpertOptionSession, SOURCE_REASON_EN, SOURCE_REASON_AR, GATEWAY_REASON_EN, GATEWAY_REASON_AR } = require('./expertoption-session');
-const { describeAssets, analyzeAsset, resolveInstrument, EXPIRY_KEYS, ASSET_KEYS } = require('./expertoption-analysis');
+const { describeAssets, describeAccountAssets, analyzeAsset, resolveInstrument, EXPIRY_KEYS, ASSET_KEYS } = require('./expertoption-analysis');
 const { RozlfAnalyzer } = require('./ai');
 const { TelegramNotifier } = require('./telegram');
 const { renderTradeChart, renderResultChart } = require('./charts');
@@ -665,66 +665,315 @@ class TradingEngine {
     };
   }
 
+  expertOptionEnvState() {
+    return {
+      bridge_url_configured: Boolean(config.EXPERTOPTION_BRIDGE_URL || config.EXPERTOPTION_API_BASE_URL),
+      bridge_key_configured: Boolean(config.EXPERTOPTION_BRIDGE_KEY || config.EXPERTOPTION_API_KEY),
+      env_session_token_configured: Boolean(config.EXPERTOPTION_SESSION_TOKEN),
+      database_url_configured: Boolean(config.DATABASE_URL),
+      restore_enabled: Boolean(config.EXPERTOPTION_RESTORE_SESSION),
+      real_read_allowed: Boolean(config.EXPERTOPTION_ALLOW_REAL_READ),
+    };
+  }
+
+  async diagnoseExpertOption({ deep = true } = {}) {
+    const env = this.expertOptionEnvState();
+    const diag = {
+      ok: false,
+      cause: null,
+      stage: 'env',
+      ready: false,
+      message_ar: '',
+      message_en: '',
+      next_step_ar: '',
+      next_step_en: '',
+      env,
+      account_attached: false,
+      session: null,
+      bridge: null,
+      assets: null,
+      checked_at: new Date().toISOString(),
+      execution_allowed: false,
+    };
+    const set = (cause, stage, ar, en, nextAr, nextEn) => {
+      diag.cause = cause;
+      diag.stage = stage;
+      diag.message_ar = ar;
+      diag.message_en = en;
+      diag.next_step_ar = nextAr;
+      diag.next_step_en = nextEn;
+      return diag;
+    };
+
+    if (!env.bridge_url_configured) {
+      return set('bridge_unconfigured', 'env',
+        'EXPERTOPTION_BRIDGE_URL غير مضبوط على الخادم، لذلك لا يوجد مصدر لبيانات الحساب.',
+        'EXPERTOPTION_BRIDGE_URL is not set on the server, so there is no account data source.',
+        'من لوحة Render أضف EXPERTOPTION_BRIDGE_URL برابط خدمة rozlf-eo-bridge الفعلي.',
+        'In the Render dashboard set EXPERTOPTION_BRIDGE_URL to the live rozlf-eo-bridge URL.');
+    }
+    if (!env.bridge_key_configured) {
+      return set('bridge_key_unconfigured', 'env',
+        'EXPERTOPTION_BRIDGE_KEY غير مضبوط على الخادم.',
+        'EXPERTOPTION_BRIDGE_KEY is not set on the server.',
+        'انسخ نفس قيمة EO_BRIDGE_API_KEY من خدمة الربط إلى EXPERTOPTION_BRIDGE_KEY في خدمة الباك اند.',
+        'Copy the same EO_BRIDGE_API_KEY value from the bridge service into EXPERTOPTION_BRIDGE_KEY on the backend.');
+    }
+    if (!this.platform || this.platform !== 'expertoption' || !this.expertOptionSession) {
+      return set('session_missing', 'account',
+        'لا توجد جلسة ExpertOption محفوظة على الخادم الآن (لم يُستعَد أي حساب بعد إعادة التشغيل).',
+        'No ExpertOption session is attached on the server right now (no account was restored after the restart).',
+        env.database_url_configured
+          ? 'أدخل Session Token من لوحة التحكم مرة أخرى (زر «اتصال») وسيُحفظ مشفراً في PostgreSQL.'
+          : 'أضف DATABASE_URL (PostgreSQL) في Render ثم أدخل Session Token من الواجهة؛ بدون قاعدة بيانات تُفقد الجلسة عند كل إعادة تشغيل.',
+        env.database_url_configured
+          ? 'Re-enter the Session Token from the dashboard (Connect). It is stored encrypted in PostgreSQL.'
+          : 'Add DATABASE_URL (PostgreSQL) in Render, then enter the Session Token in the UI; without a database the session is lost on every restart.');
+    }
+
+    const session = this.expertOptionSession;
+    diag.account_attached = true;
+    diag.session = {
+      login: session.login || '',
+      account_type: session.accountType || null,
+      token_present: Boolean(session.token || session.tokenPresent),
+      bridge_configured: Boolean(session.configured),
+      verified: Boolean(session.verified),
+      state: typeof session.status === 'function' ? session.status().connection_state : null,
+      last_error: session.lastError || null,
+    };
+
+    if (!session.baseUrl) {
+      return set('bridge_unconfigured', 'bridge',
+        'الجلسة موجودة لكن رابط خدمة الربط غير متاح لهذه الجلسة.',
+        'The session exists but the bridge URL is not available to it.',
+        'أعد تشغيل خدمة الباك اند بعد ضبط EXPERTOPTION_BRIDGE_URL.',
+        'Restart the backend service after setting EXPERTOPTION_BRIDGE_URL.');
+    }
+    if (!session.token) {
+      return set('token_missing', 'session',
+        'الجلسة محفوظة بلا Token صالح (تعذّر فك التشفير أو انتهى).',
+        'The stored session has no usable token (decryption failed or it expired).',
+        'أدخل Session Token جديداً من لوحة التحكم؛ سيُشفر بمفتاح APP_SECRET_KEY الحالي.',
+        'Enter a fresh Session Token in the dashboard; it will be encrypted with the current APP_SECRET_KEY.');
+    }
+
+    if (!deep) return diag;
+
+    let bridge = null;
+    if (typeof session.diagnostics === 'function') bridge = await session.diagnostics();
+    diag.bridge = bridge;
+    if (bridge && bridge.reachable === false) {
+      const authFailed = bridge.auth_failed === true
+        || /401|403|unauthorized|invalid.*key|key rejected/i.test(String(bridge.error || ''));
+      return set(authFailed ? 'bridge_auth_failed' : 'bridge_unreachable', 'bridge',
+        authFailed
+          ? 'خدمة الربط تعمل لكنها رفضت المفتاح (401/403): قيمة EXPERTOPTION_BRIDGE_KEY لا تطابق EO_BRIDGE_API_KEY.'
+          : `تعذر الوصول إلى خدمة الربط: ${bridge.error || 'بدون استجابة'}.`,
+        authFailed
+          ? 'The bridge is up but rejected the key (401/403): EXPERTOPTION_BRIDGE_KEY does not match EO_BRIDGE_API_KEY.'
+          : `The bridge is unreachable: ${bridge.error || 'no response'}.`,
+        authFailed
+          ? 'اجعل القيمتين متطابقتين في Render ثم أعد تشغيل خدمة الباك اند.'
+          : 'تأكد أن خدمة rozlf-eo-bridge تعمل (Live) وأن الرابط منقول كما هو من Render.',
+        authFailed
+          ? 'Make the two values identical in Render, then restart the backend service.'
+          : 'Confirm rozlf-eo-bridge is Live and that the URL was copied exactly from Render.');
+    }
+    diag.stage = 'session';
+
+    const status = await session.verify().catch((err) => ({ verified: false, last_error: err.message }));
+    diag.session.verified = Boolean(status.verified);
+    diag.session.last_error = status.last_error || session.lastError || null;
+    if (!session.verified) {
+      const err = String(session.lastError || '');
+      if (/EO_BRIDGE_API_KEY|bridge key/i.test(err)) {
+        return set('bridge_auth_failed', 'bridge',
+          'خدمة الربط تعمل لكنها رفضت المفتاح: قيمة EXPERTOPTION_BRIDGE_KEY لا تطابق EO_BRIDGE_API_KEY على خدمة rozlf-eo-bridge.',
+          'The bridge is up but rejected the key: EXPERTOPTION_BRIDGE_KEY does not match EO_BRIDGE_API_KEY on rozlf-eo-bridge.',
+          'انسخ EO_BRIDGE_API_KEY من خدمة rozlf-eo-bridge والصقه في EXPERTOPTION_BRIDGE_KEY على الباك اند، ثم أعد تشغيله.',
+          'Copy EO_BRIDGE_API_KEY from rozlf-eo-bridge into EXPERTOPTION_BRIDGE_KEY on the backend, then restart it.');
+      }
+      const expired = /session_expired|expired|expir|unauthor|401|403|rejected/i.test(err);
+      return set(expired ? 'session_expired' : 'session_rejected', 'session',
+        expired
+          ? 'الجلسة منتهية أو مرفوضة من خدمة الربط: أعد إدخال Session Token جديد من حساب ExpertOption.'
+          : `تعذر التحقق من الجلسة: ${err || 'سبب غير معروف'}.`,
+        expired
+          ? 'The session expired or was rejected by the bridge: enter a fresh Session Token from the ExpertOption account.'
+          : `Session verification failed: ${err || 'unknown reason'}.`,
+        'من الواجهة: اتصال ← ExpertOption ← Demo ← الصق Session Token جديداً ← اختبار الاتصال.',
+        'In the UI: Connect → ExpertOption → Demo → paste a fresh Session Token → test connection.');
+    }
+
+    try {
+      diag.stage = 'instruments';
+      const instruments = await session.markets({ force: true });
+      const described = describeAccountAssets(instruments);
+      diag.assets = {
+        total: described.total,
+        active: described.assets.length,
+        inactive: described.inactive_count,
+        otc: described.otc_count,
+        by_category: described.by_category,
+      };
+      if (!described.assets.length) {
+        return set('no_instruments', 'instruments',
+          'الجلسة متصلة لكنها لم تُرجع أي أصل نشط من الحساب.',
+          'The session is connected but returned no active instruments for the account.',
+          'تأكد أن الحساب يحتوي أصولاً نشطة، أو أعد تسجيل الدخول لجلسة جديدة.',
+          'Confirm the account has active assets, or sign in again for a fresh session.');
+      }
+      diag.ok = true;
+      diag.ready = true;
+      diag.stage = 'ready';
+      diag.message_ar = `الاتصال سليم: ${described.assets.length} أصل نشط متاح من الحساب.`;
+      diag.message_en = `Connection healthy: ${described.assets.length} active account assets available.`;
+      return diag;
+    } catch (err) {
+      return set(err.code === 'session_expired' ? 'session_expired' : 'instruments_failed', 'instruments',
+        `تعذر قراءة قائمة الأصول: ${err.message}`,
+        `Instrument list failed: ${err.message}`,
+        'أعد المحاولة بعد لحظات، وإن تكرر فأعد إدخال Session Token.',
+        'Retry shortly; if it repeats, re-enter the Session Token.');
+    }
+  }
+
   async expertOptionAssets() {
-    if (this.platform !== 'expertoption' || !this.expertOptionSession) {
-      return { ok: false, detail: 'اتصل بجلسة ExpertOption أولاً.', assets: [], source_ready: false };
+    const diagnosis = await this.diagnoseExpertOption();
+    if (!this.platform || this.platform !== 'expertoption' || !this.expertOptionSession) {
+      return {
+        ok: false,
+        detail: diagnosis.message_ar,
+        detail_ar: diagnosis.message_ar,
+        detail_en: diagnosis.message_en,
+        cause: diagnosis.cause,
+        next_step_ar: diagnosis.next_step_ar,
+        next_step_en: diagnosis.next_step_en,
+        env: diagnosis.env,
+        assets: [],
+        priority: describeAssets([]),
+        source_ready: false,
+        listed: false,
+        execution_allowed: false,
+      };
     }
     const session = this.expertOptionSession;
     if (!session.configured) {
       return {
         ok: false,
-        detail: GATEWAY_REASON_EN,
-        detail_ar: GATEWAY_REASON_AR,
-        assets: describeAssets([]),
+        detail: diagnosis.message_ar || GATEWAY_REASON_EN,
+        detail_ar: diagnosis.message_ar || GATEWAY_REASON_AR,
+        detail_en: diagnosis.message_en || GATEWAY_REASON_EN,
+        cause: diagnosis.cause,
+        next_step_ar: diagnosis.next_step_ar,
+        next_step_en: diagnosis.next_step_en,
+        assets: [],
+        priority: describeAssets([]),
         source_ready: false,
         listed: false,
+        execution_allowed: false,
       };
     }
-    if (!session.verified) {
-      const status = await session.verify();
-      if (!status.verified) {
-        return {
-          ok: false,
-          detail: status.last_error || SOURCE_REASON_EN,
-          detail_ar: 'تعذر التحقق من جلسة ExpertOption.',
-          assets: describeAssets([]),
-          source_ready: false,
-          listed: false,
-        };
-      }
+    if (!diagnosis.ok) {
+      return {
+        ok: false,
+        detail: diagnosis.message_ar,
+        detail_ar: diagnosis.message_ar,
+        detail_en: diagnosis.message_en,
+        cause: diagnosis.cause,
+        next_step_ar: diagnosis.next_step_ar,
+        next_step_en: diagnosis.next_step_en,
+        assets: [],
+        priority: describeAssets([]),
+        source_ready: false,
+        listed: false,
+        reconnect_required: diagnosis.cause === 'session_expired',
+        execution_allowed: false,
+      };
     }
     try {
-      const instruments = await session.markets({ force: true });
-      const assets = describeAssets(instruments);
+      const instruments = await session.markets();
+      const described = describeAccountAssets(instruments);
       return {
         ok: true,
         detail: null,
-        assets,
+        cause: null,
+        assets: described.assets,
+        priority: describeAssets(instruments),
         instruments: instruments.length,
-        available: assets.filter((a) => a.available).length,
+        available: described.assets.length,
+        inactive: described.inactive_count,
+        by_category: described.by_category,
+        otc_count: described.otc_count,
         source_ready: true,
         listed: true,
         source: { provider: 'ExpertOption account session (ROZLF bridge)', verified: true },
+        execution_allowed: false,
       };
     } catch (err) {
-      if (err.code === 'session_expired') {
-        return { ok: false, detail: err.message, assets: describeAssets([]), source_ready: false, listed: false, reconnect_required: true };
+      const keyRejected = err.code === 'bridge_auth_failed' || /EO_BRIDGE_API_KEY|bridge key/i.test(String(err.message || ''));
+      const expired = err.code === 'session_expired';
+      if (!keyRejected && /not_verified|session_expired|bridge/i.test(String(err.code || ''))) {
+        const fresh = await this.diagnoseExpertOption().catch(() => null);
+        if (fresh && !fresh.ok && fresh.cause) {
+          return {
+            ok: false,
+            detail: fresh.message_ar,
+            detail_ar: fresh.message_ar,
+            detail_en: fresh.message_en,
+            cause: fresh.cause,
+            next_step_ar: fresh.next_step_ar,
+            next_step_en: fresh.next_step_en,
+            assets: [],
+            priority: describeAssets([]),
+            source_ready: false,
+            listed: false,
+            reconnect_required: fresh.cause === 'session_expired',
+            execution_allowed: false,
+          };
+        }
       }
-      return { ok: false, detail: String(err.message || 'تعذر قراءة قائمة الأصول'), assets: describeAssets([]), source_ready: false, listed: false };
+      return {
+        ok: false,
+        detail: String(err.message || 'تعذر قراءة قائمة الأصول'),
+        detail_ar: keyRejected
+          ? 'خدمة الربط رفضت المفتاح: EXPERTOPTION_BRIDGE_KEY لا يطابق EO_BRIDGE_API_KEY.'
+          : `تعذر قراءة قائمة الأصول: ${err.message}`,
+        detail_en: keyRejected
+          ? 'The bridge rejected the key: EXPERTOPTION_BRIDGE_KEY does not match EO_BRIDGE_API_KEY.'
+          : `Instrument list failed: ${err.message}`,
+        cause: keyRejected ? 'bridge_auth_failed' : (expired ? 'session_expired' : 'instruments_failed'),
+        next_step_ar: keyRejected
+          ? 'انسخ EO_BRIDGE_API_KEY من خدمة rozlf-eo-bridge إلى EXPERTOPTION_BRIDGE_KEY ثم أعد تشغيل الباك اند.'
+          : (expired ? 'أدخل Session Token جديداً من الواجهة.' : 'أعد المحاولة؛ وإن تكرر راجع سجل خدمة الربط.'),
+        next_step_en: keyRejected
+          ? 'Copy EO_BRIDGE_API_KEY from rozlf-eo-bridge into EXPERTOPTION_BRIDGE_KEY, then restart the backend.'
+          : (expired ? 'Enter a fresh Session Token in the dashboard.' : 'Retry; if it repeats, check the bridge logs.'),
+        assets: [],
+        priority: describeAssets([]),
+        source_ready: false,
+        listed: false,
+        reconnect_required: expired,
+        execution_allowed: false,
+      };
     }
   }
 
-  async expertOptionQuote(assetKey, timeframe = 'M1') {
+  async expertOptionQuote(assetKey, timeframe = 'M1', instrumentId = null) {
     if (this.platform !== 'expertoption' || !this.expertOptionSession) {
       return { ok: false, reason_code: 'no_session' };
     }
-    if (!ASSET_KEYS.has(String(assetKey))) return { ok: false, reason_code: 'bad_asset' };
+    const byInstrument = instrumentId !== null && instrumentId !== undefined && String(instrumentId) !== '';
+    if (!byInstrument && !ASSET_KEYS.has(String(assetKey))) return { ok: false, reason_code: 'bad_asset' };
     const session = this.expertOptionSession;
     if (session.configured && !session.verified) await session.verify();
-    if (!session.verified) return { ok: false, reason_code: 'not_connected' };
+    if (!session.verified) return { ok: false, reason_code: 'not_connected', reason: session.lastError || null };
     try {
       const instruments = await session.markets();
-      const resolved = resolveInstrument(instruments, String(assetKey));
+      const resolved = byInstrument
+        ? (instruments.find((i) => String(i.id) === String(instrumentId)) ? { instrument: instruments.find((i) => String(i.id) === String(instrumentId)) } : null)
+        : resolveInstrument(instruments, String(assetKey));
       if (!resolved) return { ok: false, reason_code: 'asset_not_found' };
       const quote = await session.quote({ instrumentId: resolved.instrument.id, timeframe });
       return { ok: true, ...quote, asset: resolved.instrument.name, instrument_id: resolved.instrument.id };
@@ -733,11 +982,19 @@ class TradingEngine {
     }
   }
 
-  async expertOptionAnalyze(assetKey, expiry) {
+  async expertOptionAnalyze(assetKey, expiry, instrumentId = null) {
     if (this.platform !== 'expertoption' || !this.expertOptionSession) {
-      return { ok: false, direction: 'NO TRADE', reason_code: 'no_session', reason_ar: 'اتصل بجلسة ExpertOption أولاً.', execution_allowed: false };
+      const diagnosis = await this.diagnoseExpertOption({ deep: false });
+      return {
+        ok: false, direction: 'NO TRADE', reason_code: diagnosis.cause || 'no_session',
+        reason_ar: diagnosis.message_ar || 'اتصل بجلسة ExpertOption أولاً.',
+        reason_en: diagnosis.message_en || 'Attach an ExpertOption session first.',
+        next_step_ar: diagnosis.next_step_ar || null, next_step_en: diagnosis.next_step_en || null,
+        execution_allowed: false,
+      };
     }
-    if (!ASSET_KEYS.has(String(assetKey))) {
+    const byInstrument = instrumentId !== null && instrumentId !== undefined && String(instrumentId) !== '';
+    if (!byInstrument && !ASSET_KEYS.has(String(assetKey))) {
       return { ok: false, direction: 'NO TRADE', reason_code: 'bad_asset', reason_ar: 'أصل غير معروف.', execution_allowed: false };
     }
     if (!EXPIRY_KEYS.has(String(expiry))) {
@@ -748,14 +1005,15 @@ class TradingEngine {
     }
     const result = await analyzeAsset({
       session: this.expertOptionSession,
-      assetKey: String(assetKey),
+      assetKey: String(assetKey || ''),
+      instrumentId: byInstrument ? String(instrumentId) : undefined,
       expiry: String(expiry),
       analyzer: this.analyzer,
     });
     if (result.ok) await this.syncExpertOptionAccount().catch(() => {});
     await this.db.addLog(result.ok ? 'info' : 'warn', 'expertoption_analysis',
       `Automatic analysis ${result.ok ? result.direction : `blocked: ${result.reason_code}`}`, {
-        asset: String(assetKey), expiry: String(expiry),
+        asset: String(assetKey || instrumentId || ''), expiry: String(expiry),
         direction: result.direction, reason_code: result.reason_code || null,
         price: result.price || null, ai_reviewed: Boolean(result.ai?.reviewed),
       });

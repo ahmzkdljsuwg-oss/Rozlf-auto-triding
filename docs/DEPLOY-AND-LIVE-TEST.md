@@ -152,3 +152,25 @@ curl -s -X POST -H "Authorization: Bearer $DASHBOARD_TOKEN" \
 بمعرّف المحادثة الصحيح عند كتابة أي رسالة)، أو وجود Webhook قديم (يمسحه البوت
 تلقائيًا عند خطأ 409 ثم يستأنف الاستقبال). البوت يُراقَب كل 60 ثانية عبر
 `ensureStarted()` فلا يبقى متوقفًا بعد إعادة تشغيل Render.
+
+## 7. تشخيص سبب «لا توجد جلسة» بدقة
+
+بدل الرسالة العامة القديمة، أضفنا `GET /api/expertoption/diagnostics` الذي يعيد
+`cause` و`stage` و`next_step_ar/en` (ويحتاج `X-Dashboard-Token` كبقية المسارات).
+الحقل `cause` يعني بالضبط ما يجب إصلاحه:
+
+| cause | المعنى | الإصلاح |
+| --- | --- | --- |
+| `bridge_unconfigured` | `EXPERTOPTION_BRIDGE_URL` غير موجود على الباك اند | اضبطه على رابط خدمة `rozlf-eo-bridge` الحقيقي |
+| `bridge_auth_failed` | `EXPERTOPTION_BRIDGE_KEY` لا يطابق `EO_BRIDGE_API_KEY` | اجعل القيمتين متطابقتين ثم أعد تشغيل الباك اند |
+| `bridge_unreachable` | الخدمة متوقفة أو الرابط خطأ | تأكد أن `rozlf-eo-bridge` بحالة Live |
+| `session_missing` | لا توجد جلسة محفوظة على الخادم | أدخل Session Token من الواجهة (يُحفظ مشفرًا) |
+| `session_expired` | رفضت الخدمة الـ Token | أدخل Session Token جديدًا من حساب ExpertOption |
+| `bridge_key_unconfigured` | `EXPERTOPTION_BRIDGE_KEY` غير مضبوط | انسخ `EO_BRIDGE_API_KEY` إليه |
+| `token_missing` | الجلسة محفوظة لكن الـ Token غير قابل للفك | أدخل Token جديدًا (نفس `APP_SECRET_KEY`) |
+| `no_instruments` | الجلسة سليمة لكن الحساب لا يعرض أصولًا | راجع الحساب/المنصة |
+
+`GET /api/expertoption/assets` يعيد نفس `cause` مع `assets: []` بدل رسالة مبهمة،
+وقائمة الأصول تُبنى من قائمة الحساب الحقيقية (`describeAccountAssets`) لا من
+أرقام ثابتة؛ الأصول خارج القائمة المعروفة تُعرض بمفتاح `asset-<id>` وتُحلَّل
+بـ `instrument_id`. التنفيذ يبقى ممنوعًا: كل استجابة تحمل `execution_allowed: false`.

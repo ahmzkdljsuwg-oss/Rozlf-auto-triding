@@ -84,6 +84,48 @@ function resolveInstrument(instruments, assetKey) {
   return null;
 }
 
+const CATEGORY_ORDER = { smarty: 0, otc: 1, forex: 2, index: 3, crypto: 4, stock: 5, commodity: 6 };
+
+function describeAccountAssets(instruments) {
+  const list = (Array.isArray(instruments) ? instruments : []).filter((i) => i && i.id !== undefined && i.id !== null && i.name);
+  const decorated = list.map((instrument) => {
+    const request = REQUESTED_ASSETS.find((r) => String(r.legacy_id) === String(instrument.id)
+      || r.match.some((pattern) => pattern.test(instrumentHaystack(instrument))));
+    return {
+      key: request ? request.key : `asset-${instrument.id}`,
+      label_en: instrument.name,
+      label_ar: instrument.name,
+      available: true,
+      requested_id: request ? request.legacy_id : null,
+      id: String(instrument.id),
+      symbol: instrument.symbol || null,
+      name: instrument.name,
+      category: instrument.category || 'other',
+      otc: Boolean(instrument.otc),
+      active: instrument.active !== false,
+      payout: instrument.payout ?? null,
+      timeframes: instrument.timeframes || [],
+      expiries: instrument.expiries || null,
+      priority: request ? REQUESTED_ASSETS.indexOf(request) : 900,
+    };
+  });
+  decorated.sort((a, b) => (a.priority - b.priority)
+    || ((CATEGORY_ORDER[a.category] ?? 50) - (CATEGORY_ORDER[b.category] ?? 50))
+    || a.name.localeCompare(b.name));
+  const active = decorated.filter((a) => a.active);
+  return {
+    assets: active,
+    inactive_count: decorated.length - active.length,
+    total: decorated.length,
+    by_category: active.reduce((acc, a) => {
+      const key = a.category || 'other';
+      acc[key] = (acc[key] || 0) + 1;
+      return acc;
+    }, {}),
+    otc_count: active.filter((a) => a.otc).length,
+  };
+}
+
 function describeAssets(instruments) {
   return REQUESTED_ASSETS.map((request) => {
     const resolved = resolveInstrument(instruments, request.key);
@@ -165,12 +207,13 @@ function tfMs(timeframe) {
 }
 
 async function analyzeAsset({
-  session, assetKey, expiry, analyzer, now = Date.now(),
+  session, assetKey, instrumentId, expiry, analyzer, now = Date.now(),
   minCandles = config.EXPERTOPTION_MIN_CANDLES,
   maxCandleAgeSeconds = config.EXPERTOPTION_MAX_CANDLE_AGE_SECONDS,
 } = {}) {
   if (!session) return fail('no_session', 'No ExpertOption session is attached.', 'لا توجد جلسة ExpertOption متصلة.');
-  if (!ASSET_KEYS.has(String(assetKey))) return fail('bad_asset', 'Unknown asset.', 'أصل غير معروف.');
+  const byInstrument = instrumentId !== undefined && instrumentId !== null && String(instrumentId) !== '';
+  if (!byInstrument && !ASSET_KEYS.has(String(assetKey))) return fail('bad_asset', 'Unknown asset.', 'أصل غير معروف.');
   if (!EXPIRY_KEYS.has(String(expiry))) return fail('bad_expiry', 'Unsupported duration.', 'مدة غير مدعومة.');
   if (!session.verified) {
     return fail('not_connected', session.lastError || 'ExpertOption session is not verified.', 'جلسة ExpertOption غير متحققة.');
@@ -182,13 +225,24 @@ async function analyzeAsset({
   } catch (err) {
     return fail(err.code || 'markets_failed', `Instrument list unavailable: ${err.message}`, 'قائمة الأصول غير متاحة من البوابة.', { upstream_code: err.code || null });
   }
-  const resolved = resolveInstrument(instruments, assetKey);
+  let resolved = null;
+  if (byInstrument) {
+    const found = instruments.find((i) => String(i.id) === String(instrumentId));
+    if (found) resolved = { instrument: found, resolved_by: 'account_instrument_id' };
+  } else {
+    resolved = resolveInstrument(instruments, assetKey);
+  }
   if (!resolved) {
     return fail('asset_not_found', 'The asset is not available in this account instrument list.', 'الأصل غير موجود في قائمة أصول الحساب.', {
       requested_id: REQUESTED_ASSETS.find((a) => a.key === assetKey)?.legacy_id || null,
+      requested_instrument_id: byInstrument ? String(instrumentId) : null,
     });
   }
   const instrument = resolved.instrument;
+  const effectiveKey = ASSET_KEYS.has(String(assetKey)) && !byInstrument
+    ? String(assetKey)
+    : (REQUESTED_ASSETS.find((r) => String(r.legacy_id) === String(instrument.id)
+      || r.match.some((pattern) => pattern.test(instrumentHaystack(instrument))))?.key || `asset-${instrument.id}`);
   if (instrument.active === false) {
     return fail('asset_inactive', 'The asset is not active on this account right now.', 'الأصل غير نشط في الحساب الآن.', { instrument });
   }
@@ -254,7 +308,7 @@ async function analyzeAsset({
   const rulesConfidence = Math.max(0, Math.min(0.92, 0.45 + Math.abs(score) * 0.09));
 
   const snapshot = {
-    asset: { key: assetKey, id: instrument.id, name: instrument.name, category: instrument.category, otc: instrument.otc },
+    asset: { key: effectiveKey, id: instrument.id, name: instrument.name, category: instrument.category, otc: instrument.otc },
     expiry, timeframe,
     price: ind.price,
     last_candle_at: priceTime,
@@ -415,6 +469,7 @@ module.exports = {
   EXPIRY_LABELS,
   resolveInstrument,
   describeAssets,
+  describeAccountAssets,
   pickTimeframe,
   EXPIRY_SECONDS,
   supportResistance,

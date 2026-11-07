@@ -19,6 +19,7 @@ INSTRUMENTS = [
     {"id": "240", "symbol": "SMARTY", "name": "Smarty", "category": "smarty", "otc": False, "active": True, "payout": 82, "timeframes": [60, 300]},
     {"id": "179", "symbol": "EURUSD_OTC", "name": "EUR/USD OTC", "category": "otc", "otc": True, "active": True, "payout": 78, "timeframes": [60, 300]},
     {"id": "276", "symbol": "CRICKET", "name": "Cricket Index", "category": "index", "otc": False, "active": False, "payout": 80, "timeframes": [60]},
+    {"id": "500", "symbol": "BTCUSD", "name": "BTC/USD", "category": "crypto", "otc": False, "active": True, "payout": 74, "timeframes": [60]},
 ]
 
 STEP = {"M1": 60, "M5": 300, "M15": 900}

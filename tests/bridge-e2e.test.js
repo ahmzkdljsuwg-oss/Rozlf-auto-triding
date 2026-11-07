@@ -10,7 +10,7 @@ const fs = require('node:fs');
 const { spawn } = require('node:child_process');
 
 const { ExpertOptionSession } = require('../src/expertoption-session');
-const { analyzeAsset } = require('../src/expertoption-analysis');
+const { analyzeAsset, describeAccountAssets } = require('../src/expertoption-analysis');
 const { TelegramNotifier } = require('../src/telegram');
 
 const BRIDGE_KEY = 'test-key';
@@ -77,7 +77,7 @@ test('the backend talks to a real HTTP bridge: session, assets, candles, quote a
   assert.equal(String(status.account.type).toLowerCase(), 'demo');
 
   const instruments = await session.markets();
-  assert.deepEqual(instruments.map((i) => i.symbol).sort(), ['CRICKET', 'EURUSD_OTC', 'SMARTY']);
+  assert.deepEqual(instruments.map((i) => i.symbol).sort(), ['BTCUSD', 'CRICKET', 'EURUSD_OTC', 'SMARTY']);
 
   const rows = await session.candles({ instrumentId: '240', timeframe: 'M1', limit: 120 });
   assert.equal(rows.length, 120);
@@ -129,6 +129,51 @@ test('analysis produces a signal from live bridge candles and refuses unknown as
   const absent = await analyzeAsset({ session: missing, assetKey: 'football-index', expiry: '1m' });
   assert.equal(absent.direction, 'NO TRADE');
   assert.equal(absent.reason_code, 'asset_not_found');
+});
+
+test('the account asset list is built from every active bridge instrument', async (t) => {
+  const base = await startBridge(t);
+  const session = sessionFor(base);
+  await session.verify();
+  const instruments = await session.markets({ force: true });
+  const described = describeAccountAssets(instruments);
+
+  assert.equal(described.total, 4);
+  assert.equal(described.assets.length, 3, 'inactive Cricket must not be listed');
+  assert.equal(described.inactive_count, 1);
+  assert.equal(described.otc_count, 1);
+  assert.deepEqual(described.assets.map((a) => a.id).sort(), ['179', '240', '500']);
+  assert.ok(described.assets.every((a) => a.available && a.active));
+  assert.equal(described.assets[0].key, 'smarty', 'requested assets keep their key and sort first');
+  const crypto = described.assets.find((a) => a.id === '500');
+  assert.equal(crypto.key, 'asset-500');
+  assert.equal(crypto.category, 'crypto');
+
+  const emptyish = describeAccountAssets([]);
+  assert.equal(emptyish.assets.length, 0);
+  assert.equal(describeAccountAssets(null).total, 0);
+});
+
+test('an account instrument outside the priority list can still be analysed by id', async (t) => {
+  const base = await startBridge(t);
+  const session = sessionFor(base);
+  await session.verify();
+
+  const result = await analyzeAsset({ session, assetKey: '', instrumentId: '500', expiry: '1m' });
+  assert.equal(result.data_verified, true, result.reason_en || result.reason_code);
+  assert.equal(result.asset.id, '500');
+  assert.equal(result.asset.key, 'asset-500');
+  assert.equal(result.asset.name, 'BTC/USD');
+  assert.equal(result.execution_allowed, false);
+
+  const unknown = await analyzeAsset({ session, assetKey: '', instrumentId: '424242', expiry: '1m' });
+  assert.equal(unknown.direction, 'NO TRADE');
+  assert.equal(unknown.reason_code, 'asset_not_found');
+  assert.equal(unknown.requested_instrument_id, '424242');
+
+  const noId = await analyzeAsset({ session, assetKey: '', expiry: '1m' });
+  assert.equal(noId.direction, 'NO TRADE');
+  assert.equal(noId.reason_code, 'bad_asset');
 });
 
 test('a bad bridge key is reported, never treated as connected', async (t) => {

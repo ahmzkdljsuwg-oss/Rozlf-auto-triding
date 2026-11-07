@@ -581,7 +581,9 @@ button.system-item:hover { border-color: #d7e6fb; }
 
 /* ExpertOption automatic analysis output */
 .eo-asset:disabled{opacity:.5;cursor:not-allowed}
-.eo-empty{margin:0;color:var(--muted);font-size:13px}
+.eo-empty{margin:0;color:var(--muted);font-size:13px;white-space:pre-line}
+.eo-assets{max-height:min(58vh,460px);overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;padding-inline-end:2px}
+.eo-analysis-result.error{white-space:pre-line}
 .eo-signal{display:flex;flex-direction:column;gap:4px;padding:12px 14px;border-radius:13px;border:1px solid var(--border);background:var(--surface);margin-bottom:12px}
 .eo-signal strong{font-size:17px}
 .eo-signal span{color:var(--muted);font-size:12px}

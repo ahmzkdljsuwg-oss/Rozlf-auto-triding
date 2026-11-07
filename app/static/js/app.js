@@ -51,6 +51,7 @@
   };
   let eoAssets = [];
   let selectedEOAsset = "";
+  let selectedEOInstrument = "";
   let eoQuoteTimer = null;
   let eoQuote = null;
   const eoOut = () => $("#eo-analysis-result");
@@ -75,11 +76,15 @@
     box.textContent = eoT("السعر الحي: ", "Live price: ") + eoQuote.price + " · " + eoQuote.timeframe + " · " + at;
   }
 
+  function eoInstrumentQuery() {
+    return selectedEOInstrument ? "&instrument_id=" + encodeURIComponent(selectedEOInstrument) : "";
+  }
+
   async function refreshEOQuote() {
     if (!selectedEOAsset) return stopEOQuote();
     const asset = selectedEOAsset;
     try {
-      const data = await api("/expertoption/quote?asset=" + encodeURIComponent(asset) + "&timeframe=M1");
+      const data = await api("/expertoption/quote?asset=" + encodeURIComponent(asset) + eoInstrumentQuery() + "&timeframe=M1");
       if (selectedEOAsset !== asset) return;
       eoQuote = data && data.ok ? data : null;
     } catch {
@@ -102,16 +107,27 @@
       $("#eo-expiry-wrap").classList.add("hidden");
       return;
     }
-    box.innerHTML = eoAssets.map((asset) => '<button type="button" class="eo-asset' +
-      (selectedEOAsset === asset.key ? " active" : "") + '" data-eo-asset="' + esc(asset.key) + '"' +
-      (asset.available ? "" : " disabled") + '>' +
-      '<span class="eo-asset-icon" aria-hidden="true">' + (EO_ICONS[asset.key] || "📊") + "</span>" +
-      '<span class="eo-asset-copy"><strong>' + esc((window.I18N && window.I18N.lang === "en" ? asset.label_en : asset.label_ar) || asset.label_en || asset.label_ar) + "</strong>" +
-      '<small>' + esc(asset.available ? ((asset.name || "") + (asset.payout ? " · " + asset.payout + "%" : "")) : eoT("غير متاح في الحساب", "Not available in this account")) + "</small></span></button>").join("");
+    const lang = window.I18N && window.I18N.lang === "en" ? "en" : "ar";
+    box.innerHTML = eoAssets.map((asset) => {
+      const label = (lang === "en" ? asset.label_en : asset.label_ar) || asset.name || asset.label_en || asset.label_ar || "";
+      const tag = asset.category && asset.category !== "forex"
+        ? String(asset.category).toUpperCase()
+        : (asset.otc ? "OTC" : "");
+      const meta = [tag, asset.id, asset.payout ? asset.payout + "%" : ""].filter(Boolean).join(" · ");
+      return '<button type="button" class="eo-asset' +
+        (selectedEOAsset === asset.key ? " active" : "") + '" data-eo-asset="' + esc(asset.key) + '"' +
+        (asset.available ? "" : " disabled") + ">" +
+        '<span class="eo-asset-icon" aria-hidden="true">' + (EO_ICONS[asset.key] || (asset.otc ? "🕐" : "📊")) + "</span>" +
+        '<span class="eo-asset-copy"><strong>' + esc(label) + "</strong>" +
+        "<small>" + esc(asset.available ? meta : eoT("غير متاح في الحساب", "Not available in this account")) + "</small></span></button>";
+    }).join("");
     box.querySelectorAll("[data-eo-asset]").forEach((btn) => btn.addEventListener("click", () => {
       const asset = eoAssets.find((a) => a.key === btn.dataset.eoAsset);
       if (!asset || !asset.available) return;
       selectedEOAsset = asset.key;
+      selectedEOInstrument = asset.id ? String(asset.id) : "";
+
+      $$("#eo-assets .eo-asset").forEach((el) => el.classList.toggle("active", el === btn));
       renderEOAssets();
       $("#eo-analyze-selected").disabled = false;
       $("#eo-expiry-wrap").classList.remove("hidden");
@@ -129,6 +145,7 @@
     const out = eoOut();
     eoAssets = [];
     selectedEOAsset = "";
+    selectedEOInstrument = "";
     stopEOQuote();
     $("#eo-analyze-selected").disabled = true;
     out.className = "eo-analysis-result";
@@ -138,21 +155,26 @@
       eoAssets = Array.isArray(data.assets) ? data.assets : [];
       const available = eoAssets.filter((a) => a.available);
       const detail = data.detail_en || data.detail_ar || data.detail;
+      const next = data.next_step_ar || data.next_step_en || "";
       if (!available.length) {
-        renderEOAssets(eoT("لم تُرجِع الجلسة أي أصل من الأصول المطلوبة.", detail || "The session did not return any of the requested assets."));
-        out.textContent = detail || eoT("لا توجد أصول متاحة من الجلسة.", "No assets are available from the session.");
+        renderEOAssets(detail || eoT("لا توجد أصول متاحة من الجلسة.", "No assets are available from the session."));
+        out.textContent = (detail || eoT("لا توجد أصول متاحة من الجلسة.", "No assets are available from the session.")) + (next ? "\n" + next : "");
         out.className = "eo-analysis-result error";
         return;
       }
       renderEOAssets();
+      const cats = data.by_category && typeof data.by_category === "object"
+        ? Object.keys(data.by_category).length
+        : 0;
       out.textContent = eoT(
-        "أصول متاحة: " + available.length + " — اختر أصلاً لعرض حالة توفر بياناته.",
-        available.length + " assets available — pick one to see its data availability."
+        "أصول متاحة من الحساب: " + available.length + (cats ? " في " + cats + " فئة" : "") + " · OTC: " + (data.otc_count || 0) + " — اختر أصلاً لعرض حالته.",
+        available.length + " account assets available" + (cats ? " across " + cats + " categories" : "") + " · OTC: " + (data.otc_count || 0) + " — pick one to inspect it."
       );
     } catch (err) {
       const detail = err.data && (err.data.detail_en || err.data.detail_ar || err.data.detail);
+      const next = err.data && (err.data.next_step_ar || err.data.next_step_en);
       renderEOAssets(detail);
-      out.textContent = detail || err.message;
+      out.textContent = (detail || err.message) + (next ? "\n" + next : "");
       out.className = "eo-analysis-result error";
     }
   }
@@ -209,7 +231,9 @@
     out.textContent = eoT("جارٍ قراءة الشموع وتحليل المؤشرات…", "Reading candles and analysing indicators…");
     try {
       const result = await api("/expertoption/auto-analysis", { method: "POST", body: JSON.stringify({
-        asset_id: selectedEOAsset, expiry: $("#eo-expiry").value,
+        asset_id: selectedEOAsset,
+        instrument_id: selectedEOInstrument || null,
+        expiry: $("#eo-expiry").value,
       }) });
       out.innerHTML = renderEOAnalysis(result);
       refreshEOQuote();

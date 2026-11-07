@@ -194,7 +194,14 @@ class ExpertOptionSession {
       const latency = Date.now() - startedAt;
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
-        return { ...base, latency_ms: latency, status: response.status, error: `Bridge health returned HTTP ${response.status}` };
+        const authFailed = response.status === 401 || response.status === 403;
+        return {
+          ...base, latency_ms: latency, status: response.status,
+          auth_failed: authFailed,
+          error: authFailed
+            ? `Bridge rejected the key (HTTP ${response.status} unauthorized/invalid key)`
+            : `Bridge health returned HTTP ${response.status}`,
+        };
       }
       return {
         ...base,
@@ -257,11 +264,21 @@ class ExpertOptionSession {
         );
       }
       if (response.status === 401 || response.status === 403) {
+        const detail = await response.json().catch(() => null);
+        const detailText = typeof detail?.detail === 'string'
+          ? detail.detail
+          : String(detail?.detail?.message || detail?.detail?.code || '');
+        const keyRejected = /unauthorized(?!.*token)|bridge key|api key/i.test(detailText)
+          && !/x-eo-token|session/i.test(detailText);
         this.connected = false;
         this.verified = false;
-        this.sessionExpired = true;
-        this.lastError = 'ExpertOption session rejected by the gateway (expired or unauthorized)';
-        throw new ExpertOptionError(this.lastError, 'session_expired', { status: response.status });
+        this.sessionExpired = !keyRejected;
+        this.lastError = keyRejected
+          ? 'The bridge rejected EO_BRIDGE_API_KEY (401 Unauthorized); ExpertOption was never contacted'
+          : 'ExpertOption session rejected by the gateway (expired or unauthorized)';
+        throw new ExpertOptionError(this.lastError, keyRejected ? 'bridge_auth_failed' : 'session_expired', {
+          status: response.status,
+        });
       }
       if (response.status === 502) {
         this.connected = false;

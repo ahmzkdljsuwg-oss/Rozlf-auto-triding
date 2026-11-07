@@ -223,22 +223,29 @@ function createApp({ engine }) {
     });
   });
 
+  app.get('/api/expertoption/diagnostics', async (req, res) => {
+    const diagnosis = await engine.diagnoseExpertOption();
+    res.status(diagnosis.ok ? 200 : 409).json({
+      ...diagnosis,
+      platform: engine.platform || null,
+      account_login: engine.account ? engine.account.login : null,
+      account_type: engine.accountType || null,
+      session_restore: engine.sessionRestore || null,
+      execution_allowed: false,
+    });
+  });
+
   app.get('/api/expertoption/assets', async (req, res) => {
-    if (!engine.account || engine.platform !== 'expertoption') {
-      return fail(res, 409, 'اتصل بجلسة ExpertOption أولاً.');
-    }
     const result = await engine.expertOptionAssets();
     res.status(result.ok ? 200 : 409).json(result);
   });
 
   app.get('/api/expertoption/quote', async (req, res) => {
-    if (!engine.account || engine.platform !== 'expertoption') {
-      return fail(res, 409, 'اتصل بجلسة ExpertOption أولاً.');
-    }
     const asset = String(req.query.asset || '');
-    if (!asset) return fail(res, 422, 'اختر أصلاً من قائمة ExpertOption.');
+    const instrumentId = req.query.instrument_id !== undefined ? String(req.query.instrument_id) : null;
+    if (!asset && !instrumentId) return fail(res, 422, 'اختر أصلاً من قائمة ExpertOption.');
     const timeframe = String(req.query.timeframe || 'M1').toUpperCase();
-    const result = await engine.expertOptionQuote(asset, timeframe);
+    const result = await engine.expertOptionQuote(asset, timeframe, instrumentId);
     res.status(result.ok ? 200 : 409).json({ ...result, execution_allowed: false });
   });
 
@@ -281,15 +288,20 @@ function createApp({ engine }) {
   app.post('/api/expertoption/auto-analysis', async (req, res) => {
     const body = req.body || {};
     const allowedExpiries = new Set(['30s', '1m', '2m', '3m', '5m']);
-    if (!body.asset_id) return fail(res, 422, 'اختر أصلاً من قائمة ExpertOption.');
+    const instrumentId = body.instrument_id !== undefined && body.instrument_id !== null && String(body.instrument_id) !== ''
+      ? String(body.instrument_id)
+      : null;
+    if (!body.asset_id && !instrumentId) return fail(res, 422, 'اختر أصلاً من قائمة ExpertOption.');
     if (!allowedExpiries.has(String(body.expiry || ''))) return fail(res, 422, 'مدة التحليل غير مدعومة.');
-    if (!engine.account || engine.platform !== 'expertoption') {
-      return fail(res, 409, 'اتصل بجلسة ExpertOption أولاً.');
-    }
-    const result = await engine.expertOptionAnalyze(String(body.asset_id), String(body.expiry));
+    const result = await engine.expertOptionAnalyze(
+      body.asset_id ? String(body.asset_id) : '',
+      String(body.expiry),
+      instrumentId,
+    );
     const payload = {
       ...result,
-      asset_id: String(body.asset_id),
+      asset_id: String(body.asset_id || instrumentId || ''),
+      instrument_id: instrumentId,
       expiry: String(body.expiry),
       execution_allowed: false,
       ai_reviewed: Boolean(result.ai && result.ai.reviewed),
