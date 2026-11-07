@@ -1,0 +1,12 @@
+{
+  "name": "ROZLF AUTO TRADER",
+  "short_name": "ROZLF",
+  "description": "Automated market analysis and demo trading cockpit.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f2f8fb",
+  "theme_color": "#2d75d7",
+  "icons": [
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

@@ -1,0 +1,7 @@
+fastapi==0.162.0
+uvicorn[standard]==0.54.0
+httpx==0.28.1
+numpy==2.5.4
+matplotlib==3.11.2
+cryptography==50.0.2
+python-multipart==0.0.20
