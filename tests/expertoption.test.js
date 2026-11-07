@@ -352,9 +352,21 @@ test('a live quote is attached to the analysis when the bridge returns one', asy
   assert.equal(result.timeframe, 'M1');
 });
 
-test('an inactive asset yields NO TRADE with an explicit reason', async () => {
+test('an inactive asset is analysed read-only with an explicit warning', async () => {
   const instruments = INSTRUMENTS.map((i) => (i.id === '240' ? { ...i, active: false } : i));
   const fake = gatewayFetch({ instruments, candles: makeCandles(200) });
+  const session = sessionFor(fake);
+  await session.verify();
+  const result = await analyzeAsset({ session, assetKey: 'smarty', expiry: '1m' });
+  assert.equal(result.ok, true);
+  assert.equal(result.asset_active, false);
+  assert.equal(result.warnings[0].code, 'asset_inactive');
+  assert.equal(result.execution_allowed, false);
+});
+
+test('an inactive asset without candles yields NO TRADE with an explicit reason', async () => {
+  const instruments = INSTRUMENTS.map((i) => (i.id === '240' ? { ...i, active: false } : i));
+  const fake = gatewayFetch({ instruments, candles: [] });
   const session = sessionFor(fake);
   await session.verify();
   const result = await analyzeAsset({ session, assetKey: 'smarty', expiry: '1m' });

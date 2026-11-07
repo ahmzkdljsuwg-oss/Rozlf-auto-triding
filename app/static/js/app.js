@@ -113,19 +113,21 @@
       const tag = asset.category && asset.category !== "forex"
         ? String(asset.category).toUpperCase()
         : (asset.otc ? "OTC" : "");
-      const meta = [tag, asset.id, asset.payout ? asset.payout + "%" : ""].filter(Boolean).join(" · ");
+      const inactive = asset.active === false;
+      const meta = [tag, asset.id, asset.payout ? asset.payout + "%" : "", inactive ? eoT("قراءة فقط", "read-only") : ""].filter(Boolean).join(" · ");
       return '<button type="button" class="eo-asset' +
         (selectedEOAsset === asset.key ? " active" : "") + '" data-eo-asset="' + esc(asset.key) + '"' +
-        (asset.available ? "" : " disabled") + ">" +
+        (asset.available ? "" : " data-eo-inactive=\"1\"") + ">" +
         '<span class="eo-asset-icon" aria-hidden="true">' + (EO_ICONS[asset.key] || (asset.otc ? "🕐" : "📊")) + "</span>" +
         '<span class="eo-asset-copy"><strong>' + esc(label) + "</strong>" +
-        "<small>" + esc(asset.available ? meta : eoT("غير متاح في الحساب", "Not available in this account")) + "</small></span></button>";
+        "<small>" + esc(inactive ? eoT("غير نشط لدى الوسيط — تحليل فقط", "Flagged inactive by the broker — analysis only") : meta) + "</small></span></button>";
     }).join("");
     box.querySelectorAll("[data-eo-asset]").forEach((btn) => btn.addEventListener("click", () => {
       const asset = eoAssets.find((a) => a.key === btn.dataset.eoAsset);
-      if (!asset || !asset.available) return;
+      if (!asset) return;
       selectedEOAsset = asset.key;
       selectedEOInstrument = asset.id ? String(asset.id) : "";
+      applyEOExpirySupport(asset);
 
       $$("#eo-assets .eo-asset").forEach((el) => el.classList.toggle("active", el === btn));
       renderEOAssets();
@@ -135,6 +137,21 @@
       eoOut().textContent = eoT("تم اختيار " + (asset.label_ar || asset.label_en) + " — اختر المدة ثم ابدأ التحليل.", (asset.label_en || asset.label_ar) + " selected — choose an expiry, then start the analysis.");
       startEOQuote();
     }));
+  }
+
+  function applyEOExpirySupport(asset) {
+    const select = $("#eo-expiry");
+    if (!select) return;
+    const supported = Array.isArray(asset && asset.supported_expiries) ? asset.supported_expiries : [];
+    let firstEnabled = null;
+    $$("#eo-expiry option").forEach((option) => {
+      const ok = !supported.length || supported.includes(option.value);
+      option.disabled = !ok;
+      if (ok && !firstEnabled) firstEnabled = option;
+    });
+    if (select.selectedOptions[0] && select.selectedOptions[0].disabled && firstEnabled) {
+      select.value = firstEnabled.value;
+    }
   }
 
   function eoT(ar, en) {
@@ -152,7 +169,9 @@
     out.textContent = eoT("جارٍ قراءة الأصول من جلسة ExpertOption…", "Reading assets from the ExpertOption session…");
     try {
       const data = await api("/expertoption/assets");
-      eoAssets = Array.isArray(data.assets) ? data.assets : [];
+      eoAssets = Array.isArray(data.all_assets) && data.all_assets.length
+        ? data.all_assets
+        : (Array.isArray(data.assets) ? data.assets : []);
       const available = eoAssets.filter((a) => a.available);
       const detail = data.detail_en || data.detail_ar || data.detail;
       const next = data.next_step_ar || data.next_step_en || "";
@@ -213,8 +232,17 @@
       ["FVG / Order Blocks", (st.fvg || []).length + " / " + (st.order_blocks || []).length],
       [eoT("سحب السيولة", "Liquidity sweep"), st.liquidity_sweep && st.liquidity_sweep.sweep ? st.liquidity_sweep.sweep : "—"],
     ];
+    const warnings = Array.isArray(result.warnings) ? result.warnings : [];
+    const warningHtml = warnings.length
+      ? '<p class="eo-warning">' + esc(warnings.map((w) => (window.I18N && window.I18N.lang === "en" ? w.en : w.ar) || w.code).join(" ")) + "</p>"
+      : "";
+    const chartHtml = result.chart_data_url
+      ? '<figure class="eo-chart"><img src="' + esc(result.chart_data_url) + '" alt="' + esc(eoT("شارت التحليل", "Analysis chart")) + '" loading="lazy" decoding="async"><figcaption>' +
+        esc((result.asset && result.asset.name) || "") + " · " + esc(result.timeframe || "") + " · " + esc(result.expiry_label_ar || result.expiry || "") + "</figcaption></figure>"
+      : "";
     return '<div class="eo-signal ' + cls + '"><strong>' + (labels[result.direction] || labels["NO TRADE"]) + "</strong>" +
       "<span>" + esc(result.asset && result.asset.name ? result.asset.name : "") + " · " + esc(result.candles || 0) + eoT(" شمعة", " candles") + "</span></div>" +
+      warningHtml + chartHtml +
       '<dl class="eo-facts">' + rows.map(([k, v]) => "<div><dt>" + esc(k) + "</dt><dd>" + esc(v == null || v === "" ? "—" : v) + "</dd></div>").join("") + "</dl>" +
       (reasons ? '<h3 class="eo-reasons-title">' + eoT("سبب القرار", "Decision reasons") + '</h3><ul class="eo-reasons">' + reasons + "</ul>" : "") +
       '<p class="eo-footnote">' + eoT("المصدر: جلسة حساب ExpertOption عبر خدمة الربط · تحليل فقط بدون تنفيذ صفقات", "Source: ExpertOption account session via the ROZLF bridge · analysis only, no order execution") +

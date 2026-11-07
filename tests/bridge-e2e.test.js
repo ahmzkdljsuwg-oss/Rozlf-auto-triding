@@ -121,8 +121,9 @@ test('analysis produces a signal from live bridge candles and refuses unknown as
   assert.equal(otc.asset.otc, true);
 
   const inactive = await analyzeAsset({ session, assetKey: 'cricket-index', expiry: '1m' });
-  assert.equal(inactive.direction, 'NO TRADE');
-  assert.equal(inactive.reason_code, 'asset_inactive');
+  assert.equal(inactive.asset_active, false, inactive.reason_en || inactive.reason_code);
+  assert.equal(inactive.warnings[0].code, 'asset_inactive');
+  assert.equal(inactive.execution_allowed, false);
 
   const missing = sessionFor(base);
   await missing.verify();

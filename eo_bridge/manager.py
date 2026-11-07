@@ -36,6 +36,9 @@ QUOTE_MAX_AGE_SECONDS = float(os.getenv("EO_BRIDGE_QUOTE_MAX_AGE_SECONDS", "20")
 CANDLE_TIMEOUT = float(os.getenv("EO_BRIDGE_CANDLE_TIMEOUT", "20"))
 MAX_SESSIONS = int(os.getenv("EO_BRIDGE_MAX_SESSIONS", "4"))
 SERVER_REGION = os.getenv("EO_BRIDGE_REGION", "EUROPE").upper()
+# Chart timeframes ExpertOption publishes. Used when the session does not answer
+# getCandlesTimeframes, so the backend never asks for a timeframe it cannot get.
+DEFAULT_TIMEFRAMES = [5, 60, 300, 900, 1800, 3600, 14400, 86400]
 
 
 class BridgeError(Exception):
@@ -51,6 +54,12 @@ def session_key(token: str) -> str:
 
 def base_url() -> str:
     return SERVERS.get(SERVER_REGION) or DEFAULT_SERVER
+
+
+def _truthy(value: Any) -> bool:
+    if isinstance(value, str):
+        return value.strip().lower() not in {"", "0", "false", "no", "off"}
+    return bool(value)
 
 
 @dataclass
@@ -74,6 +83,7 @@ class Session:
     assets_at: float = 0.0
     timeframes: List[int] = field(default_factory=list)
     timeframes_at: float = 0.0
+    timeframes_source: str = "unknown"
     profile: Dict[str, Any] = field(default_factory=dict)
     connected_at: Optional[float] = None
     last_ok_at: Optional[float] = None
@@ -151,34 +161,96 @@ class Session:
         if self.assets and not refresh and time.time() - self.assets_at < 60:
             return self.assets
         assets = await self.call_connected(lambda c: c.fetch_assets())
+        # The platform has returned both a list and an id-keyed mapping over
+        # time; accept either so no asset silently disappears.
+        if isinstance(assets, dict):
+            assets = list(assets.values())
         self.assets = [a for a in (assets or []) if isinstance(a, dict)]
         self.assets_at = time.time()
         return self.assets
 
+    def find_asset(self, asset_id: Any) -> Optional[dict]:
+        target = str(asset_id)
+        for asset in self.assets:
+            if str(asset.get("id")) == target:
+                return asset
+        return None
+
     async def load_timeframes(self, refresh: bool = False) -> List[int]:
         if self.timeframes and not refresh and time.time() - self.timeframes_at < 600:
             return self.timeframes
-        values = await self.call_connected(lambda c: c.fetch_timeframes())
-        self.timeframes = [int(v) for v in (values or []) if int(v) in SUPPORTED_PERIODS]
+        try:
+            values = await self.call_connected(lambda c: c.fetch_timeframes())
+        except BridgeError:
+            values = []
+        cleaned = sorted({
+            int(v) for v in (values or [])
+            if str(v).strip().isdigit() and int(v) in SUPPORTED_PERIODS
+        })
+        if cleaned:
+            self.timeframes_source = "session"
+        else:
+            cleaned = list(DEFAULT_TIMEFRAMES)
+            self.timeframes_source = "default"
+        self.timeframes = cleaned
         self.timeframes_at = time.time()
         return self.timeframes
 
-    async def candles(self, asset_id: int, period: int, limit: int) -> List[dict]:
-        async with self.lock:
-            rows = await self.call_connected(
-                lambda c: c.get_candles(
-                    asset_id,
-                    period,
-                    0,
-                    duration=max(period * 600, 1800),
-                    count_request=2,
-                    as_dataframe=False,
-                )
+    async def candles(
+        self, asset_id: int, period: int, limit: int, allow_inactive: bool = True
+    ) -> List[dict]:
+        await self.load_assets()
+        asset = self.find_asset(asset_id)
+        if asset is None:
+            raise BridgeError(
+                f"Asset {asset_id} is not in this account's asset list",
+                code="asset_not_found",
+                status=409,
             )
+        if not _truthy(asset.get("is_active")) and not allow_inactive:
+            raise BridgeError(
+                f"Asset {asset_id} is not active on this account",
+                code="asset_inactive",
+                status=409,
+            )
+        supported = await self.load_timeframes()
+        if period not in supported:
+            raise BridgeError(
+                f"{period}s is not a candle timeframe of this session",
+                code="timeframe_unsupported",
+                status=422,
+            )
+        cache = (getattr(self.client, "candle_cache", None) or {}).get(int(asset_id), {}) or {}
+        cached_count = len((cache.get(period) or {}).get("candles", []))
+        need = max(10, int(limit or 300))
+        duration = max(period * (need + 20), 1800)
+        count_request = 1 if cached_count >= need else 2
+        async with self.lock:
+            async def _read(client):
+                kwargs = {"duration": duration, "count_request": count_request, "as_dataframe": False}
+                try:
+                    return await client.get_candles(
+                        int(asset_id), int(period), 0, allow_inactive=True, **kwargs
+                    )
+                except TypeError:
+                    # Older vendored clients do not take allow_inactive.
+                    return await client.get_candles(int(asset_id), int(period), 0, **kwargs)
+
+            try:
+                rows = await asyncio.wait_for(
+                    self.call_connected(_read),
+                    timeout=CANDLE_TIMEOUT,
+                )
+            except asyncio.TimeoutError:
+                raise BridgeError("Candle request timed out", code="candle_timeout", status=504)
+            except ValueError as exc:
+                raise BridgeError(str(exc)[:200], code="candle_rejected", status=409)
         rows = list(rows or [])
         rows.sort(key=lambda r: float(r.get("time", 0)))
         if limit and len(rows) > limit:
             rows = rows[-limit:]
+        if not rows:
+            raise BridgeError("No candles returned for this asset", code="no_candles", status=424)
         return rows
 
     async def account(self) -> Dict[str, Any]:
@@ -210,7 +282,12 @@ class Session:
         cached = self.quotes.get(key)
         if cached and time.time() - cached.updated_at < 3:
             return cached
-        rows = await self.candles(asset_id, period, 2)
+        try:
+            rows = await self.candles(asset_id, period, 2)
+        except BridgeError as exc:
+            if exc.code != "no_candles":
+                raise
+            rows = []
         if not rows:
             if cached and time.time() - cached.updated_at <= QUOTE_MAX_AGE_SECONDS:
                 return cached
@@ -292,6 +369,8 @@ class Session:
             "last_error": self.last_error,
             "reconnects": self.reconnects,
             "assets_cached": len(self.assets),
+            "timeframes": self.timeframes,
+            "timeframes_source": self.timeframes_source,
             "streams": [k for k, t in self.subscription_tasks.items() if not t.done()],
         }
 

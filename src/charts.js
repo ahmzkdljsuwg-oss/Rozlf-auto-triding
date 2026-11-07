@@ -193,4 +193,23 @@ async function renderResultChart({
   return outputPath;
 }
 
-module.exports = { renderTradeChart, renderResultChart };
+async function renderAnalysisChart({
+  symbol, timeframe, direction, candles, price, outputDir, expiryLabel = '', confidence = null,
+}) {
+  const side = direction === 'UP' ? 'BUY' : (direction === 'DOWN' ? 'SELL' : 'NO TRADE');
+  const confidenceText = Number.isFinite(Number(confidence)) ? ` | ${Math.round(Number(confidence) * 100)}%` : '';
+  const canvas = drawChart({
+    symbol,
+    timeframe,
+    side,
+    candles,
+    entry: price,
+    footer: `${direction} ${expiryLabel}${confidenceText} | ROZLF analysis${new Date().toISOString().slice(0, 16).replace('T', ' ')} UTC`,
+  });
+  const filename = `analysis_${String(symbol || 'asset').replace(/[^\w.-]/g, '_')}_${timeframe}_${Date.now()}.png`;
+  const outputPath = path.join(outputDir, filename);
+  await fs.promises.writeFile(outputPath, canvas.toBuffer('image/png'));
+  return outputPath;
+}
+
+module.exports = { renderTradeChart, renderResultChart, renderAnalysisChart };

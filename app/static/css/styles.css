@@ -597,3 +597,9 @@ button.system-item:hover { border-color: #d7e6fb; }
 .eo-reasons-title{font-size:13px;margin:0 0 6px}
 .eo-reasons{margin:0 0 10px;padding-inline-start:18px;font-size:13px;line-height:1.8}
 .eo-footnote{margin:0;color:var(--muted);font-size:11px;line-height:1.7}
+
+.eo-warning{margin:0 0 12px;padding:10px 12px;border:1px solid #8a7b45;border-radius:11px;background:rgba(138,123,69,.12);color:#e0c979;font-size:12.5px;line-height:1.6}
+.eo-chart{margin:0 0 12px}
+.eo-chart img{display:block;width:100%;height:auto;border:1px solid var(--border);border-radius:12px;background:#0b1220}
+.eo-chart figcaption{margin-top:6px;color:var(--muted);font-size:11.5px;text-align:center}
+@media (max-width:600px){.eo-facts{grid-template-columns:repeat(auto-fit,minmax(120px,1fr))}.eo-analysis-result{padding:12px}}

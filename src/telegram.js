@@ -331,7 +331,18 @@ class TelegramNotifier {
       lines.push('', '<b>سبب القرار</b>', ...reasons.map((r) => `• ${escapeHtml(r)}`));
     }
     lines.push('', '⚠️ تحليل فقط — لا يتم تنفيذ أي صفقة. لا يوجد ضمان للربح.', `المصدر: ${source === 'telegram' ? 'Telegram' : 'الموقع'}`);
-    return this.sendMessage(lines.join('\n'));
+    const text = lines.join('\n');
+    if (result.chart_path) {
+      const caption = [
+        '🟦 <b>ROZLF AUTO TRADER</b>',
+        `${escapeHtml(asset.name || result.asset_id || '—')} · ${escapeHtml(result.timeframe || '')} · ${escapeHtml(result.expiry_label_ar || result.expiry || '')}`,
+        `${labels[result.direction] || labels['NO TRADE']} · ${Math.round(Number(result.confidence || 0) * 100)}%`,
+        `السعر: ${escapeHtml(result.live_price ?? result.price ?? '—')}`,
+      ].join('\n');
+      const photo = await this.sendPhoto(result.chart_path, caption);
+      if (photo.ok) return this.sendMessage(text);
+    }
+    return this.sendMessage(text);
   }
 
   async sendExpertOptionNoTrade(result, { source = 'site' } = {}) {

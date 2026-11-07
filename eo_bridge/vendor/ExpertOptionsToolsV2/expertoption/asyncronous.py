@@ -576,13 +576,15 @@ class ExpertOptionAsync:
             return None
         return max(active, key=lambda x: x.get("profit", 0))
 
-    async def check_asset_availability(self, asset_id: int) -> bool:
-        """Verify if an asset is tradable."""
+    async def check_asset_availability(self, asset_id: int, allow_inactive: bool = False) -> bool:
+        """Verify if an asset is tradable (or, with allow_inactive, merely listed)."""
         assets = await self.fetch_assets()
-        asset = next((a for a in assets if a['id'] == asset_id), None)
+        asset = next((a for a in assets if str(a.get('id')) == str(asset_id)), None)
         if not asset:
             self.logger.error(f"Asset ID {asset_id} not found")
             return False
+        if allow_inactive:
+            return True
         if not asset.get("is_active"):
             self.logger.warning(f"Asset ID {asset_id} is not active")
             return False
@@ -592,9 +594,9 @@ class ExpertOptionAsync:
         self.logger.info(f"Asset ID {asset_id} is available for trading")
         return True
 
-    async def verify_asset_subscription(self, asset_id: int, timeframe: int) -> bool:
+    async def verify_asset_subscription(self, asset_id: int, timeframe: int, allow_inactive: bool = False) -> bool:
         """Verify if an asset supports the given timeframe and is available for subscription."""
-        if not await self.check_asset_availability(asset_id):
+        if not await self.check_asset_availability(asset_id, allow_inactive=allow_inactive):
             self.logger.error(f"Asset ID {asset_id} is not available for subscription")
             return False
         timeframes = await self.fetch_asset_timeframes(asset_id)
@@ -905,9 +907,15 @@ class ExpertOptionAsync:
             self.logger.debug(f"Unhandled message: {msg}")
         raise TimeoutError(f"Timeout waiting for result of deal {deal_id}")
 
-    async def get_candles(self, asset_id: int, period: int, offset: int, duration: int = 1800, count_request: int = 3, start_time: int = None, as_dataframe: bool = True) -> list:
-        """Retrieves historical and live candle data for an asset ID."""
-        if not await self.verify_asset_subscription(asset_id, period):
+    async def get_candles(self, asset_id: int, period: int, offset: int, duration: int = 1800, count_request: int = 3, start_time: int = None, as_dataframe: bool = True, allow_inactive: bool = False) -> list:
+        """Retrieves historical and live candle data for an asset ID.
+
+        allow_inactive keeps the read path open for assets the broker currently
+        flags as inactive; it never influences trading, which stays disabled.
+        """
+        asset_id = int(asset_id)
+        period = int(period)
+        if not await self.verify_asset_subscription(asset_id, period, allow_inactive=allow_inactive):
             self.logger.error(f"Cannot fetch candles for asset ID {asset_id} with timeframe {period}")
             raise ValueError(f"Invalid asset ID {asset_id} or timeframe {period}")
 

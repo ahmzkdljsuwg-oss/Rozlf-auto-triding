@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 import time
 from typing import Any, Dict, List, Optional
 
@@ -27,7 +28,7 @@ from .manager import (
     registry,
 )
 
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 BRIDGE_KEY = os.getenv("EO_BRIDGE_API_KEY", "")
 # Order submission is not implemented at all: the vendored client's buy/sell
 # raise TradingDisabledError. EO_BRIDGE_DEMO_ONLY therefore only describes the
@@ -85,17 +86,60 @@ def period_of(timeframe: str) -> int:
     raise HTTPException(status_code=422, detail=f"Unsupported timeframe: {timeframe}")
 
 
-def normalize_asset(asset: dict) -> Dict[str, Any]:
-    symbol = str(asset.get("symbol") or asset.get("name") or "").strip()
+def _truthy(value: Any, default: bool = True) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, str):
+        return value.strip().lower() not in {"", "0", "false", "no", "off"}
+    if isinstance(value, (int, float)):
+        return value != 0
+    return bool(value)
+
+
+def classify_asset(asset: dict, symbol: str, name: str) -> str:
+    """Best-effort market type from the account payload itself.
+
+    ExpertOption mixes OTC pairs, synthetic/index assets and normal instruments
+    in one list; the raw `type` field is not documented, so a symbol/name rule
+    is used first and the raw value is kept separately.
+    """
+    text = f"{symbol} {name}".upper()
+    if "SMRTY" in text or "SMARTY" in text:
+        return "smarty"
+    if re.search(r"CRICKET|FOOTBALL|AI[ _-]?INDEX|LUXURY|INDEX", text):
+        return "index"
+    if "OTC" in text:
+        return "otc"
+    if re.search(r"BTC|ETH|LTC|XRP|DOGE|SOL|ADA|BNB|CRYPTO", text):
+        return "crypto"
+    if re.search(r"OIL|GOLD|SILVER|XAU|XAG|BRENT|WTI|GAS", text):
+        return "commodity"
+    if re.search(r"^(AAPL|TSLA|AMZN|MSFT|META|NFLX|GOOGL|NVDA)", text):
+        return "stock"
+    if re.search(r"[A-Z]{3}[_/]?[A-Z]{3}", text):
+        return "forex"
+    return "other"
+
+
+def normalize_asset(asset: dict, fallback_timeframes: Optional[List[int]] = None) -> Dict[str, Any]:
+    symbol = str(asset.get("symbol") or asset.get("asset") or asset.get("name") or "").strip()
+    name = str(asset.get("name") or asset.get("title") or symbol).strip()
+    asset_id = asset.get("id", asset.get("asset_id", asset.get("instrument_id")))
+    raw_active = asset.get("is_active", asset.get("active", asset.get("enabled")))
+    timeframes = asset.get("timeframes")
+    if not isinstance(timeframes, list) or not timeframes:
+        timeframes = list(fallback_timeframes or [])
     return {
-        "id": asset.get("id"),
+        "id": asset_id,
         "symbol": symbol,
-        "name": asset.get("name") or symbol,
-        "active": bool(asset.get("is_active")),
-        "payout": asset.get("profit"),
-        "otc": symbol.upper().endswith("_OTC") or "OTC" in symbol.upper(),
-        "category": asset.get("type") or asset.get("category"),
-        "timeframes": asset.get("timeframes") or [],
+        "name": name,
+        "active": _truthy(raw_active),
+        "active_known": raw_active is not None,
+        "payout": asset.get("profit", asset.get("payout")),
+        "otc": "OTC" in f"{symbol} {name}".upper(),
+        "category": classify_asset(asset, symbol, name),
+        "raw_type": asset.get("type") or asset.get("category"),
+        "timeframes": [int(t) for t in timeframes if str(t).isdigit()],
     }
 
 
@@ -198,10 +242,21 @@ async def instruments(
 ) -> Dict[str, Any]:
     session = resolve_session(x_eo_token, x_eo_demo)
     assets = await guarded(session.load_assets(refresh=refresh))
-    items = [normalize_asset(a) for a in assets if normalize_asset(a)["symbol"]]
+    timeframes = await guarded(session.load_timeframes())
+    items = []
+    for asset in assets:
+        if not isinstance(asset, dict):
+            continue
+        normalized = normalize_asset(asset, fallback_timeframes=timeframes)
+        if normalized["symbol"] and normalized["id"] is not None:
+            items.append(normalized)
+    active = [a for a in items if a["active"]]
     return {
         "source": "expertoption-session",
         "count": len(items),
+        "active_count": len(active),
+        "timeframes": timeframes,
+        "timeframes_source": session.timeframes_source,
         "instruments": items,
         "updated_at": int(time.time()),
     }
@@ -217,14 +272,17 @@ async def candles(
 ) -> Dict[str, Any]:
     session = resolve_session(x_eo_token, x_eo_demo)
     period = period_of(timeframe)
-    supported = await guarded(session.load_timeframes())
-    if supported and period not in supported:
-        raise HTTPException(
-            status_code=422,
-            detail={"code": "timeframe_unsupported", "message": f"{timeframe} is not offered by this session",
-                    "timeframes": supported},
-        )
-    rows = await guarded(session.candles(instrument_id, period, limit))
+    empty_reason = None
+    try:
+        rows = await guarded(session.candles(instrument_id, period, limit, allow_inactive=True))
+    except HTTPException as exc:
+        # An asset the session cannot chart is reported as an honest empty
+        # series instead of an invented one; /quote keeps raising 424.
+        code = (exc.detail or {}).get("code") if isinstance(exc.detail, dict) else None
+        if code not in {"no_candles", "asset_not_found"}:
+            raise
+        empty_reason = code
+        rows = []
     return {
         "instrument_id": instrument_id,
         "timeframe": timeframe,
@@ -232,6 +290,7 @@ async def candles(
         "candles": serialize_candles(rows, period),
         "count": len(rows),
         "source": "expertoption-session",
+        "reason": empty_reason,
         "updated_at": int(time.time()),
     }
 
@@ -276,6 +335,47 @@ async def expiries(
         "expiries": values,
         "source": "session-exp-times" if values else "unavailable",
     }
+
+
+@app.get("/instrument/{instrument_id}", dependencies=[Depends(require_key)])
+async def instrument_detail(
+    instrument_id: int,
+    timeframe: str = Query(default="M1"),
+    probe: bool = Query(default=True),
+    x_eo_token: Optional[str] = Header(default=None),
+    x_eo_demo: Optional[str] = Header(default=None),
+) -> Dict[str, Any]:
+    """One asset: listing state, offered timeframes and a real candle probe."""
+    session = resolve_session(x_eo_token, x_eo_demo)
+    await guarded(session.load_assets())
+    timeframes = await guarded(session.load_timeframes())
+    raw = session.find_asset(instrument_id)
+    asset = normalize_asset(raw, fallback_timeframes=timeframes) if raw else None
+    result: Dict[str, Any] = {
+        "instrument_id": instrument_id,
+        "asset": asset,
+        "timeframes": timeframes,
+        "expiries": asset_expiries(session, instrument_id),
+        "listed": bool(asset),
+        "updated_at": int(time.time()),
+    }
+    if probe:
+        period = period_of(timeframe)
+        if period not in timeframes and timeframes:
+            period = timeframes[0]
+        try:
+            rows = await session.candles(instrument_id, period, 60, allow_inactive=True)
+            result["probe"] = {
+                "ok": True,
+                "period_seconds": period,
+                "count": len(rows),
+                "last_time": int(float(rows[-1].get("time", 0)) * 1000),
+                "last_close": float(rows[-1].get("close", 0)),
+            }
+        except BridgeError as exc:
+            result["probe"] = {"ok": False, "period_seconds": period,
+                               "code": exc.code, "message": str(exc)[:200]}
+    return result
 
 
 @app.exception_handler(HTTPException)

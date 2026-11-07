@@ -240,6 +240,24 @@ function createApp({ engine }) {
     res.status(result.ok ? 200 : 409).json(result);
   });
 
+  app.get('/api/expertoption/asset/:id', async (req, res) => {
+    if (engine.platform !== 'expertoption' || !engine.expertOptionSession) {
+      return fail(res, 409, 'ExpertOption session is not attached');
+    }
+    try {
+      if (engine.expertOptionSession.configured && !engine.expertOptionSession.verified) {
+        await engine.expertOptionSession.verify();
+      }
+      const detail = await engine.expertOptionSession.instrumentDetail(String(req.params.id), {
+        timeframe: String(req.query.timeframe || 'M1'),
+        probe: req.query.probe !== 'false',
+      });
+      return res.json({ ok: true, ...detail, execution_allowed: false });
+    } catch (err) {
+      return fail(res, err.status && err.status >= 400 ? err.status : 424, String(err.message || err.code || 'Asset probe failed'));
+    }
+  });
+
   app.get('/api/expertoption/quote', async (req, res) => {
     const asset = String(req.query.asset || '');
     const instrumentId = req.query.instrument_id !== undefined ? String(req.query.instrument_id) : null;
@@ -306,6 +324,15 @@ function createApp({ engine }) {
       execution_allowed: false,
       ai_reviewed: Boolean(result.ai && result.ai.reviewed),
     };
+    if (result.chart_path) {
+      try {
+        const image = await fs.promises.readFile(result.chart_path);
+        payload.chart_data_url = `data:image/png;base64,${image.toString('base64')}`;
+      } catch (err) {
+        await engine.db.addLog('warn', 'chart', `Analysis chart read failed: ${err.message}`).catch(() => {});
+      }
+      payload.chart_path = path.basename(result.chart_path);
+    }
     if (result.ok && result.direction !== 'NO TRADE' && engine.telegram) {
       engine.telegram
         .sendExpertOptionAnalysis(payload, { source: 'site' })

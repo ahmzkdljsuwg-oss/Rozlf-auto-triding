@@ -54,17 +54,50 @@ const REQUESTED_ASSETS = [
 const ASSET_KEYS = new Set(REQUESTED_ASSETS.map((a) => a.key));
 const EXPIRY_KEYS = new Set(Object.keys(EXPIRY_TIMEFRAME));
 
-function pickTimeframe(expiry, instrument) {
-  const candidates = EXPIRY_TIMEFRAME_CANDIDATES[expiry] || ['M1'];
-  const published = Array.isArray(instrument?.timeframes) ? instrument.timeframes : [];
-  if (published.length) {
-    for (const timeframe of candidates) {
-      const seconds = (TIMEFRAME_MS[timeframe] || 0) / 1000;
-      if (seconds && published.includes(seconds)) return { timeframe, source: 'asset_timeframes' };
-    }
-    return { timeframe: candidates[0], source: 'fallback' };
+// Seconds -> candle timeframe name, for pairing the asset's published candle
+// granularities with an option expiry.
+const SECONDS_TO_TIMEFRAME = {
+  5: 'S5', 10: 'S10', 15: 'S15', 30: 'S30',
+  60: 'M1', 120: 'M2', 180: 'M3', 300: 'M5', 900: 'M15', 1800: 'M30',
+  3600: 'H1', 14400: 'H4', 86400: 'D1',
+};
+
+function timeframeCandidates(expiry, instrument) {
+  const expirySeconds = EXPIRY_SECONDS[expiry] || 60;
+  const published = (Array.isArray(instrument?.timeframes) ? instrument.timeframes : [])
+    .map((value) => Number(value))
+    .filter((value) => Number.isFinite(value) && value > 0);
+  const known = published.filter((seconds) => SECONDS_TO_TIMEFRAME[seconds]);
+  if (known.length) {
+    const finer = known
+      .filter((seconds) => seconds <= expirySeconds)
+      .sort((a, b) => b - a)
+      .map((seconds) => ({ timeframe: SECONDS_TO_TIMEFRAME[seconds], seconds, source: 'asset_timeframes' }));
+    if (finer.length) return { list: finer, reason: null, published: known };
+    return { list: [], reason: 'timeframe_too_coarse', published: known };
   }
-  return { timeframe: candidates[0], source: 'default' };
+  const fallback = (EXPIRY_TIMEFRAME_CANDIDATES[expiry] || ['M1']).map((timeframe) => ({
+    timeframe, seconds: (TIMEFRAME_MS[timeframe] || 60_000) / 1000, source: 'default',
+  }));
+  return { list: fallback, reason: null, published: [] };
+}
+
+function pickTimeframe(expiry, instrument) {
+  const result = timeframeCandidates(expiry, instrument);
+  if (!result.list.length) {
+    return { timeframe: null, source: 'none', reason: result.reason, published: result.published, candidates: [] };
+  }
+  return { ...result.list[0], candidates: result.list.map((entry) => entry.timeframe) };
+}
+
+// Which of the five requested expiries this asset can actually be analysed on,
+// given the candle timeframes the session publishes for it.
+function supportedExpiries(instrument) {
+  const published = (Array.isArray(instrument?.timeframes) ? instrument.timeframes : [])
+    .map((value) => Number(value))
+    .filter((value) => Number.isFinite(value) && SECONDS_TO_TIMEFRAME[value]);
+  if (!published.length) return [];
+  return Object.keys(EXPIRY_SECONDS).filter((expiry) => timeframeCandidates(expiry, instrument).list.length > 0);
 }
 
 function instrumentHaystack(instrument) {
@@ -91,30 +124,34 @@ function describeAccountAssets(instruments) {
   const decorated = list.map((instrument) => {
     const request = REQUESTED_ASSETS.find((r) => String(r.legacy_id) === String(instrument.id)
       || r.match.some((pattern) => pattern.test(instrumentHaystack(instrument))));
+    const active = instrument.active !== false;
     return {
       key: request ? request.key : `asset-${instrument.id}`,
       label_en: instrument.name,
       label_ar: instrument.name,
-      available: true,
+      available: active,
       requested_id: request ? request.legacy_id : null,
       id: String(instrument.id),
       symbol: instrument.symbol || null,
       name: instrument.name,
       category: instrument.category || 'other',
       otc: Boolean(instrument.otc),
-      active: instrument.active !== false,
+      active,
       payout: instrument.payout ?? null,
       timeframes: instrument.timeframes || [],
       expiries: instrument.expiries || null,
+      supported_expiries: supportedExpiries(instrument),
       priority: request ? REQUESTED_ASSETS.indexOf(request) : 900,
     };
   });
   decorated.sort((a, b) => (a.priority - b.priority)
+    || (Number(b.active) - Number(a.active))
     || ((CATEGORY_ORDER[a.category] ?? 50) - (CATEGORY_ORDER[b.category] ?? 50))
     || a.name.localeCompare(b.name));
   const active = decorated.filter((a) => a.active);
   return {
     assets: active,
+    all_assets: decorated,
     inactive_count: decorated.length - active.length,
     total: decorated.length,
     by_category: active.reduce((acc, a) => {
@@ -243,11 +280,25 @@ async function analyzeAsset({
     ? String(assetKey)
     : (REQUESTED_ASSETS.find((r) => String(r.legacy_id) === String(instrument.id)
       || r.match.some((pattern) => pattern.test(instrumentHaystack(instrument))))?.key || `asset-${instrument.id}`);
-  if (instrument.active === false) {
-    return fail('asset_inactive', 'The asset is not active on this account right now.', 'الأصل غير نشط في الحساب الآن.', { instrument });
+  const assetInactive = instrument.active === false;
+  const warnings = [];
+  if (assetInactive) {
+    warnings.push({
+      code: 'asset_inactive',
+      en: 'The broker flags this asset inactive; candles are read read-only and no order can be placed.',
+      ar: 'الوسيط يعتبر هذا الأصل غير نشط؛ تُقرأ الشموع للتحليل فقط ولا يمكن تنفيذ أي صفقة.',
+    });
   }
   const picked = pickTimeframe(expiry, instrument);
-  const timeframe = picked.timeframe;
+  if (!picked.timeframe) {
+    return fail(
+      'timeframe_unavailable',
+      `This asset publishes only coarse candles (${(picked.published || []).join(', ')}s), so a ${EXPIRY_LABELS[expiry].en} signal cannot be built from real data.`,
+      `هذا الأصل يوفر شموعاً كبيرة فقط (${(picked.published || []).join('، ')} ثانية)، لذلك لا يمكن بناء إشارة ${EXPIRY_LABELS[expiry].ar} من بيانات حقيقية.`,
+      { instrument, published_timeframes: picked.published || [], supported_expiries: supportedExpiries(instrument) },
+    );
+  }
+  let timeframe = picked.timeframe;
 
   const expiryCheck = { verified: false, supported: null, source: 'unavailable', available: null };
   if (typeof session.expiries === 'function') {
@@ -271,16 +322,43 @@ async function analyzeAsset({
   }
 
   let candles;
-  try {
-    candles = await session.candles({ instrumentId: instrument.id, timeframe, limit: 260 });
-  } catch (err) {
-    return fail(err.code || 'candles_failed', `Candles unavailable: ${err.message}`, 'الشموع غير متاحة من البوابة.', {
-      instrument, timeframe, upstream_code: err.code || null,
+  let usedTimeframe = timeframe;
+  const attempts = [];
+  const tryTimeframes = picked.candidates && picked.candidates.length ? picked.candidates.slice(0, 3) : [timeframe];
+  let lastError = null;
+  for (const candidate of tryTimeframes) {
+    try {
+      const rows = await session.candles({ instrumentId: instrument.id, timeframe: candidate, limit: 260 });
+      attempts.push({ timeframe: candidate, candles: Array.isArray(rows) ? rows.length : 0, ok: true });
+      if (rows && rows.length >= Math.min(minCandles, 60)) {
+        candles = rows;
+        usedTimeframe = candidate;
+        break;
+      }
+      lastError = { code: 'insufficient_data', message: `only ${rows?.length || 0} candles` };
+    } catch (err) {
+      lastError = { code: err.code || 'candles_failed', message: err.message };
+      attempts.push({ timeframe: candidate, ok: false, code: err.code || 'candles_failed' });
+      if (!['timeframe_unsupported', 'candle_rejected', 'no_candles', 'insufficient_data'].includes(err.code)) break;
+    }
+  }
+  if (!candles) {
+    if (assetInactive) {
+      return fail(
+        'asset_inactive',
+        'The asset is flagged inactive by the broker and returned no candles, so no signal can be built.',
+        'الأصل غير نشط لدى الوسيط ولم تُرجع أي شموع، لذلك لا يمكن بناء إشارة.',
+        { instrument, timeframe_attempts: attempts, upstream_code: lastError?.code || null },
+      );
+    }
+    return fail(lastError?.code || 'candles_failed', `Candles unavailable: ${lastError?.message || 'no data'}`, 'الشموع غير متاحة من البوابة.', {
+      instrument, timeframe, timeframe_attempts: attempts, upstream_code: lastError?.code || null,
     });
   }
+  timeframe = usedTimeframe;
   if (candles.length < minCandles) {
     return fail('insufficient_data', `Only ${candles.length} candles were returned; ${minCandles} are required.`, `عدد الشموع ${candles.length} فقط والمطلوب ${minCandles}.`, {
-      instrument, timeframe, candles: candles.length,
+      instrument, timeframe, candles: candles.length, timeframe_attempts: attempts,
     });
   }
 
@@ -308,7 +386,10 @@ async function analyzeAsset({
   const rulesConfidence = Math.max(0, Math.min(0.92, 0.45 + Math.abs(score) * 0.09));
 
   const snapshot = {
-    asset: { key: effectiveKey, id: instrument.id, name: instrument.name, category: instrument.category, otc: instrument.otc },
+    asset: {
+      key: effectiveKey, id: instrument.id, name: instrument.name,
+      category: instrument.category, otc: instrument.otc, active: !assetInactive,
+    },
     expiry, timeframe,
     price: ind.price,
     last_candle_at: priceTime,
@@ -445,6 +526,19 @@ async function analyzeAsset({
     },
     reasons_en: notes.en.concat(ai.reasons || []),
     reasons_ar: reasonsAr.length ? reasonsAr : notes.ar,
+    asset_active: !assetInactive,
+    warnings,
+    supported_expiries: supportedExpiries(instrument),
+    timeframe_source: picked.source,
+    timeframe_attempts: attempts,
+    chart: {
+      timeframe,
+      expiry,
+      candles: candles.slice(-120).map((c) => ({
+        t: c.time,
+        o: round(c.open), h: round(c.high), l: round(c.low), c: round(c.close),
+      })),
+    },
     execution_allowed: false,
     data_verified: true,
     disclaimer: 'Analytical output only. No order is placed. No profit is guaranteed.',
@@ -471,6 +565,8 @@ module.exports = {
   describeAssets,
   describeAccountAssets,
   pickTimeframe,
+  timeframeCandidates,
+  supportedExpiries,
   EXPIRY_SECONDS,
   supportResistance,
   analyzeAsset,

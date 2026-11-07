@@ -512,6 +512,17 @@ class ExpertOptionSession {
     return { expiries: rows, source: String(data?.source || 'unavailable') };
   }
 
+  async instrumentDetail(instrumentId, { timeframe = 'M1', probe = true } = {}) {
+    if (!this.verified) throw new ExpertOptionError('ExpertOption session is not verified', 'not_verified');
+    if (instrumentId === undefined || instrumentId === null || instrumentId === '') {
+      throw new ExpertOptionError('instrumentId is required', 'bad_request');
+    }
+    return this._request(`/instrument/${encodeURIComponent(instrumentId)}`, {
+      query: { timeframe: String(timeframe || 'M1').toUpperCase(), probe: probe ? 'true' : 'false' },
+      retries: 0,
+    });
+  }
+
   clearCache() {
     this._instruments = null;
     this._instrumentsAt = 0;

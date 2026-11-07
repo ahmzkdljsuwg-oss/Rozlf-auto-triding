@@ -14,7 +14,7 @@ const { ExpertOptionSession, SOURCE_REASON_EN, SOURCE_REASON_AR, GATEWAY_REASON_
 const { describeAssets, describeAccountAssets, analyzeAsset, resolveInstrument, EXPIRY_KEYS, ASSET_KEYS } = require('./expertoption-analysis');
 const { RozlfAnalyzer } = require('./ai');
 const { TelegramNotifier } = require('./telegram');
-const { renderTradeChart, renderResultChart } = require('./charts');
+const { renderTradeChart, renderResultChart, renderAnalysisChart } = require('./charts');
 const { utcnow } = require('./db');
 const { getSpeedPreset, isSpeedMode, DEFAULT_SPEED } = require('./speed');
 const settingsUtil = require('./settings');
@@ -900,6 +900,7 @@ class TradingEngine {
         detail: null,
         cause: null,
         assets: described.assets,
+        all_assets: described.all_assets,
         priority: describeAssets(instruments),
         instruments: instruments.length,
         available: described.assets.length,
@@ -1010,6 +1011,22 @@ class TradingEngine {
       expiry: String(expiry),
       analyzer: this.analyzer,
     });
+    if (result.ok && result.chart && Array.isArray(result.chart.candles) && result.chart.candles.length >= 10) {
+      try {
+        result.chart_path = await renderAnalysisChart({
+          symbol: result.asset?.name || result.asset?.symbol || 'ExpertOption',
+          timeframe: result.timeframe,
+          direction: result.direction,
+          candles: result.chart.candles.map((c) => ({ time: c.t, open: c.o, high: c.h, low: c.l, close: c.c })),
+          price: result.live_price || result.price,
+          outputDir: this.chartDir,
+          expiryLabel: result.expiry_label_en || result.expiry,
+          confidence: result.confidence,
+        });
+      } catch (err) {
+        await this.db.addLog('warn', 'chart', `Analysis chart failed: ${err.message}`).catch(() => {});
+      }
+    }
     if (result.ok) await this.syncExpertOptionAccount().catch(() => {});
     await this.db.addLog(result.ok ? 'info' : 'warn', 'expertoption_analysis',
       `Automatic analysis ${result.ok ? result.direction : `blocked: ${result.reason_code}`}`, {

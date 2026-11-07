@@ -167,10 +167,11 @@ async def test_expiries_come_from_session_exp_times(client):
 @pytest.mark.asyncio
 async def test_empty_candles_are_reported_not_invented(client):
     response = await client.get("/candles", params={"instrument_id": 999, "timeframe": "M1"}, headers=HEADERS)
-    assert response.status_code == 200
+    assert response.status_code == 200, response.text
     assert response.json()["count"] == 0
     quote = await client.get("/quote", params={"instrument_id": 999, "timeframe": "M1"}, headers=HEADERS)
-    assert quote.status_code == 424
+    assert quote.status_code in (409, 424)
+    assert "price" not in quote.json()
 
 
 @pytest.mark.asyncio
