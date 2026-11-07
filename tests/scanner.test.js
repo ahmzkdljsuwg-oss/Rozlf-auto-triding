@@ -151,7 +151,8 @@ test('ExpertOption session never reports a token as a verified connection', asyn
   assert.equal(before.official_api_available, false);
   const after = await session.verify();
   assert.equal(after.verified, false);
-  await assert.rejects(() => session.markets(), /documented API/);
-  await assert.rejects(() => session.candles(), /documented API/);
-  await assert.rejects(() => session.accountInfo(), /documented API/);
+  const guard = /not verified|not configured|authorized/i;
+  await assert.rejects(() => session.markets(), guard);
+  await assert.rejects(() => session.candles({ instrumentId: '240', timeframe: 'M1' }), guard);
+  await assert.rejects(() => session.accountInfo(), guard);
 });

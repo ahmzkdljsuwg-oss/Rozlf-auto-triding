@@ -239,6 +239,47 @@ class TelegramNotifier {
     return this.sendMessage(lines.join('\n'), this.mainKeyboard());
   }
 
+  async sendExpertOptionAnalysis(result, { source = 'site' } = {}) {
+    const labels = { UP: 'UP — صعود ⬆️', DOWN: 'DOWN — هبوط ⬇️', 'NO TRADE': 'NO TRADE — لا توجد فرصة واضحة ⏸️' };
+    const asset = result.asset || {};
+    const ind = result.indicators || {};
+    const sr = result.support_resistance || {};
+    const lines = [
+      '🟦 <b>ROZLF AUTO TRADER — تحليل ExpertOption</b>',
+      `<b>الأصل:</b> ${escapeHtml(asset.name || result.asset_id || '—')}${asset.otc ? ' (OTC)' : ''}`,
+      `<b>المدة:</b> ${escapeHtml(result.expiry_label_ar || result.expiry || '—')}`,
+      `<b>النتيجة:</b> ${labels[result.direction] || labels['NO TRADE']}`,
+      `<b>السعر الحالي:</b> ${result.price ?? '—'}`,
+      `<b>آخر تحديث للبيانات:</b> ${escapeHtml(result.price_time || '—')}`,
+      `<b>الاتجاه:</b> ${escapeHtml(result.trend || '—')}`,
+      `<b>الثقة التقديرية:</b> ${Math.round(Number(result.confidence || 0) * 100)}%`,
+      '',
+      '<b>المؤشرات</b>',
+      `RSI: ${ind.rsi ?? '—'} | MACD: ${ind.macd ?? '—'} (hist ${ind.macd_hist ?? '—'})`,
+      `EMA20/50/200: ${ind.ema20 ?? '—'} / ${ind.ema50 ?? '—'} / ${ind.ema200 ?? '—'}`,
+      `ADX: ${ind.adx ?? '—'} | ATR: ${ind.atr ?? '—'}`,
+      `الدعم: ${sr.support ?? '—'} | المقاومة: ${sr.resistance ?? '—'}`,
+    ];
+    const reasons = Array.isArray(result.reasons_ar) ? result.reasons_ar.slice(0, 6) : [];
+    if (reasons.length) {
+      lines.push('', '<b>سبب القرار</b>', ...reasons.map((r) => `• ${escapeHtml(r)}`));
+    }
+    lines.push('', '⚠️ تحليل فقط — لا يتم تنفيذ أي صفقة. لا يوجد ضمان للربح.', `المصدر: ${source === 'telegram' ? 'Telegram' : 'الموقع'}`);
+    return this.sendMessage(lines.join('\n'));
+  }
+
+  async sendExpertOptionNoTrade(result, { source = 'site' } = {}) {
+    const reason = result.reason_ar || result.detail_ar || result.detail || 'لا توجد فرصة واضحة في هذه اللحظة.';
+    return this.sendMessage([
+      '🟦 <b>ROZLF AUTO TRADER — تحليل ExpertOption</b>',
+      '<b>النتيجة:</b> NO TRADE — لا توجد فرصة واضحة ⏸️',
+      `<b>السبب:</b> ${escapeHtml(reason)}`,
+      '',
+      '⚠️ تحليل فقط — لم يتم تنفيذ أي صفقة.',
+      `المصدر: ${source === 'telegram' ? 'Telegram' : 'الموقع'}`,
+    ].join('\n'));
+  }
+
   async notifyError(message) {
     return this.sendMessage(`⚠️ <b>ROZLF AUTO TRADER</b>\n${escapeHtml(message).slice(0, 3500)}`);
   }

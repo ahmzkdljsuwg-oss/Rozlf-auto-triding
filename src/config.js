@@ -48,6 +48,21 @@ const config = {
   // Optional private session cookie. Never expose it to the browser or logs.
   EXPERTOPTION_SESSION_COOKIE: env('EXPERTOPTION_SESSION_COOKIE', ''),
 
+  // Authorized gateway for ExpertOption account/market data. ExpertOption itself
+  // publishes no public API, so data access only works when an authorized
+  // gateway implementing the documented contract is configured here. Leaving
+  // these empty keeps the integration in its honest "not configured" state.
+  EXPERTOPTION_API_BASE_URL: env('EXPERTOPTION_API_BASE_URL', ''),
+  EXPERTOPTION_API_KEY: env('EXPERTOPTION_API_KEY', ''),
+  EXPERTOPTION_API_ACCOUNT: env('EXPERTOPTION_API_ACCOUNT', ''),
+  EXPERTOPTION_API_TIMEOUT_MS: Math.max(1000, num('EXPERTOPTION_API_TIMEOUT_MS', 10000)),
+  EXPERTOPTION_API_MIN_INTERVAL_MS: Math.max(0, num('EXPERTOPTION_API_MIN_INTERVAL_MS', 250)),
+  EXPERTOPTION_API_RETRIES: Math.max(0, Math.min(5, num('EXPERTOPTION_API_RETRIES', 2))),
+  EXPERTOPTION_CANDLE_CACHE_MS: Math.max(0, num('EXPERTOPTION_CANDLE_CACHE_MS', 4000)),
+  EXPERTOPTION_INSTRUMENT_CACHE_MS: Math.max(0, num('EXPERTOPTION_INSTRUMENT_CACHE_MS', 60000)),
+  EXPERTOPTION_MAX_CANDLE_AGE_SECONDS: Math.max(30, num('EXPERTOPTION_MAX_CANDLE_AGE_SECONDS', 180)),
+  EXPERTOPTION_MIN_CANDLES: Math.max(40, num('EXPERTOPTION_MIN_CANDLES', 80)),
+
   // Two names are accepted so an older Render service keeps working; both
   // default to false and neither enables live trading on its own.
   REAL_TRADING_APPROVED: bool('REAL_TRADING_APPROVED', false) || bool('ENABLE_REAL_TRADING', false),

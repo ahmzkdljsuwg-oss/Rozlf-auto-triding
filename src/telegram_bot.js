@@ -99,15 +99,21 @@ class TelegramBotController {
   }
 
 
-  expertOptionAssetsKeyboard() {
-    const assets = [
-      ['ai-index','🤖 AI Index'], ['cricket-index','🏏 Cricket Index'], ['stock','📈 سهم'],
-      ['eurusd-otc','🇪🇺 EUR / USD (OTC)'], ['usdjpy-otc','🇯🇵 USD / JPY (OTC)'],
-      ['gbpusd-otc','🇬🇧 GBP / USD (OTC)'], ['football-index','⚽ Football Index'],
-      ['luxury-index','💎 Luxury Index'], ['smarty','🧠 Smarty'], ['usdchf-otc','🇨🇭 USD / CHF (OTC)'],
-      ['silver-otc','🥈 Silver (OTC)'], ['nzdusd-otc','🇳🇿 NZD / USD (OTC)'],
-    ];
-    return { inline_keyboard: assets.map(([id,label]) => [{ text: label, callback_data: `eoasset:${id}` }]).concat([[{ text: '🕘 آخر التوصيات', callback_data: 'action:eo_latest' }, { text: '⚙️ إعدادات التحليل', callback_data: 'menu:eo_settings' }],[{ text: '🔔 الإشعارات', callback_data: 'menu:notify' }],[{ text: '↩️ القائمة', callback_data: 'menu:main' }]]) };
+  expertOptionAssetsKeyboard(assets = null) {
+    const rows = [];
+    if (Array.isArray(assets) && assets.length) {
+      for (const asset of assets) {
+        if (!asset.available) continue;
+        rows.push([{ text: `📊 ${asset.label_ar || asset.label_en}`, callback_data: `eoasset:${asset.key}` }]);
+      }
+    }
+    if (!rows.length) {
+      rows.push([{ text: '↩️ الأصول غير متاحة الآن', callback_data: 'menu:eo' }]);
+    }
+    rows.push([{ text: '🕘 آخر التوصيات', callback_data: 'action:eo_latest' }, { text: '⚙️ إعدادات التحليل', callback_data: 'menu:eo_settings' }]);
+    rows.push([{ text: '🔔 الإشعارات', callback_data: 'menu:notify' }]);
+    rows.push([{ text: '↩️ القائمة', callback_data: 'menu:main' }]);
+    return { inline_keyboard: rows };
   }
 
   expertOptionExpiryKeyboard() {
@@ -198,8 +204,20 @@ class TelegramBotController {
       return this._edit(query, '🤖 <b>ROZLF AUTO TRADER — لوحة التحكم</b>\nاختر قسمًا:', this.notifier.mainKeyboard());
     }
     if (data === 'menu:eo') {
-      await this._answer(query, 'اختر أصل ExpertOption');
-      return this._edit(query, '📊 <b>ExpertOption — التحليل فقط</b>\nاختر الأصل ثم مدة التحليل. لا يتم تنفيذ صفقات.', this.expertOptionAssetsKeyboard());
+      await this._answer(query, 'جاري قراءة أصول الحساب');
+      const listing = await engine.expertOptionAssets();
+      if (!listing.ok) {
+        return this._edit(query, [
+          '📊 <b>ExpertOption — التحليل فقط</b>',
+          `⚠️ ${listing.detail_ar || listing.detail || 'الأصول غير متاحة.'}`,
+          'لن أعرض إشارة من دون بيانات حقيقية من جلسة الحساب.',
+        ].join('\n'), this.expertOptionAssetsKeyboard([]));
+      }
+      return this._edit(query, [
+        '📊 <b>ExpertOption — التحليل فقط</b>',
+        `أصول متاحة من جلستك: ${listing.available}`,
+        'اختر الأصل ثم مدة التحليل. لا يتم تنفيذ صفقات.',
+      ].join('\n'), this.expertOptionAssetsKeyboard(listing.assets));
     }
     if (data === 'menu:eo_settings') {
       const enabled = await engine.db.getSetting('telegram.expertoption_notifications', true);
@@ -250,21 +268,32 @@ class TelegramBotController {
 
     const eoAsset = /^eoasset:([a-z0-9-]+)$/.exec(data);
     if (eoAsset) {
-      const allowed = new Set(['ai-index','cricket-index','stock','eurusd-otc','usdjpy-otc','gbpusd-otc','football-index','luxury-index','smarty','usdchf-otc','silver-otc','nzdusd-otc']);
-      if (!allowed.has(eoAsset[1])) return this._answer(query, 'أصل غير معروف', true);
-      this.eoSelection.set(String(chatId), { asset: eoAsset[1] });
+      const listing = await engine.expertOptionAssets();
+      if (!listing.ok) {
+        return this._answer(query, listing.detail_ar || 'الأصول غير متاحة', true);
+      }
+      const asset = (listing.assets || []).find((a) => a.key === eoAsset[1] && a.available);
+      if (!asset) return this._answer(query, 'هذا الأصل غير متاح في حسابك', true);
+      this.eoSelection.set(String(chatId), { asset: asset.key });
       await this._answer(query, 'تم اختيار الأصل');
-      return this._edit(query, '⏱ <b>اختر مدة التحليل</b>', this.expertOptionExpiryKeyboard());
+      return this._edit(query, `⏱ <b>اختر مدة التحليل</b>\nالأصل: ${asset.label_ar || asset.label_en}`, this.expertOptionExpiryKeyboard());
     }
     const eoExpiry = /^eoexpiry:(30s|1m|2m|3m|5m)$/.exec(data);
     if (eoExpiry) {
       const selection = this.eoSelection.get(String(chatId));
       if (!selection) return this._answer(query, 'اختر الأصل أولاً', true);
-      selection.expiry = eoExpiry[1];
-      const labels = { '30s':'30 ثانية','1m':'دقيقة','2m':'دقيقتان','3m':'3 دقائق','5m':'5 دقائق' };
-      const assetLabels = { 'ai-index':'AI Index','cricket-index':'Cricket Index','stock':'سهم','eurusd-otc':'EUR / USD (OTC)','usdjpy-otc':'USD / JPY (OTC)','gbpusd-otc':'GBP / USD (OTC)','football-index':'Football Index','luxury-index':'Luxury Index','smarty':'Smarty','usdchf-otc':'USD / CHF (OTC)','silver-otc':'Silver (OTC)','nzdusd-otc':'NZD / USD (OTC)' };
-      await this._answer(query, 'تم اختيار المدة');
-      return this._edit(query, `🔎 <b>طلب التحليل</b>\nالأصل: ${assetLabels[selection.asset]}\nالمدة: ${labels[selection.expiry]}\n\nلا توجد حالياً واجهة بيانات سوق موثقة ومصرح بها من ExpertOption لقراءة هذا الأصل. لم أصدر شراء أو بيع حتى لا أخمّن السعر.`, this.expertOptionAssetsKeyboard());
+      await this._answer(query, 'جاري التحليل على بيانات حقيقية');
+      await this._edit(query, '⏳ <b>جاري تحليل بيانات الحساب...</b>');
+      const result = await engine.expertOptionAnalyze(selection.asset, eoExpiry[1]);
+      const notifyEnabled = await engine.db.getSetting('telegram.expertoption_notifications', true);
+      if (!result.ok) {
+        await this.notifier.sendExpertOptionNoTrade(result, { source: 'telegram' });
+      } else if (result.direction === 'NO TRADE') {
+        await this.notifier.sendExpertOptionNoTrade(result, { source: 'telegram' });
+      } else if (notifyEnabled) {
+        await this.notifier.sendExpertOptionAnalysis(result, { source: 'telegram' });
+      }
+      return this._edit(query, '📊 <b>ExpertOption</b>\nتم إرسال نتيجة التحليل أعلاه.', this.expertOptionAssetsKeyboard([]));
     }
 
     const speed = /^speed:(slow|medium|fast)$/.exec(data);

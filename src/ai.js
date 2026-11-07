@@ -209,6 +209,64 @@ class MistralAnalyzer {
     }
   }
 
+  async analyzeMarketSnapshot(snapshot) {
+    if (!this.enabled) throw new Error('MISTRAL_API_KEY is not configured');
+    const prompt = [
+      'You are the market analyst for ROZLF AUTO TRADER.',
+      'You receive a verified numeric snapshot computed from real candles of one asset.',
+      'Decide the next short-term move for the stated expiry: UP, DOWN or NO TRADE.',
+      'Rules: never invent prices, candles or indicators; use only the supplied numbers.',
+      'Choose NO TRADE when trend, momentum and structure disagree, when ADX is weak,',
+      'when price sits inside the chop between support and resistance, or when the data is thin.',
+      'Return JSON only: {"direction":"UP|DOWN|NO_TRADE","confidence":0-100,',
+      '"reasons":["short reason in Arabic"],"expiry_note":"one short sentence"}.',
+      JSON.stringify(snapshot).slice(0, 16000),
+    ].join('\n');
+    let response;
+    try {
+      response = await fetch('https://api.mistral.ai/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${this.apiKey}` },
+        body: JSON.stringify({
+          model: this.model,
+          temperature: 0.1,
+          max_tokens: 600,
+          response_format: { type: 'json_object' },
+          messages: [
+            { role: 'system', content: 'You are a cautious market analyst. Output valid JSON only. Never invent data.' },
+            { role: 'user', content: prompt },
+          ],
+        }),
+        signal: AbortSignal.timeout(30000),
+      });
+    } catch (err) {
+      const timedOut = err?.name === 'TimeoutError' || err?.name === 'AbortError';
+      throw new Error(timedOut ? 'Mistral request timed out' : `Mistral request failed: ${err.message}`);
+    }
+    if (response.status === 401 || response.status === 403) throw new Error('Mistral rejected the API key (HTTP 401)');
+    if (response.status === 429) throw new Error('Mistral rate limit reached (HTTP 429)');
+    if (!response.ok) {
+      const detail = (await response.text()).slice(0, 160);
+      throw new Error(`Mistral HTTP ${response.status}: ${detail}`);
+    }
+    const data = await response.json();
+    let raw = data?.choices?.[0]?.message?.content || '';
+    if (Array.isArray(raw)) raw = raw.map((x) => x.text || '').join('');
+    raw = String(raw).replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim();
+    let parsed;
+    try { parsed = JSON.parse(raw); } catch { throw new Error('Mistral returned an unreadable analysis'); }
+    const direction = String(parsed.direction || '').toUpperCase().replace(/[\s-]+/g, '_');
+    if (!['UP', 'DOWN', 'NO_TRADE'].includes(direction)) throw new Error('Mistral returned an invalid direction');
+    const confidence = Number(parsed.confidence);
+    return {
+      direction,
+      confidence: Number.isFinite(confidence) ? Math.max(0, Math.min(100, confidence)) / 100 : null,
+      reasons: Array.isArray(parsed.reasons) ? parsed.reasons.slice(0, 6).map((r) => String(r).slice(0, 200)) : [],
+      expiry_note: parsed.expiry_note ? String(parsed.expiry_note).slice(0, 200) : null,
+      model: this.model,
+    };
+  }
+
   async analyzeChartImage({ imageBase64, mimeType, marketType = 'unknown', symbol = 'unknown', timeframe = 'unknown' }) {
     if (!this.enabled) throw new Error('MISTRAL_API_KEY is not configured');
     const clean = String(imageBase64 || '').replace(/^data:[^,]+,/, '');

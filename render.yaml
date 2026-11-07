@@ -37,5 +37,13 @@ services:
         sync: false
       - key: EXPERTOPTION_SESSION_COOKIE
         sync: false
+      - key: EXPERTOPTION_API_BASE_URL
+        sync: false
+      - key: EXPERTOPTION_API_KEY
+        sync: false
+      - key: EXPERTOPTION_API_TIMEOUT_MS
+        value: "10000"
+      - key: EXPERTOPTION_MIN_CANDLES
+        value: "80"
       - key: SCAN_INTERVAL_SECONDS
         value: "60"

@@ -45,52 +45,141 @@
     }[c]));
   }
 
-  const EO_ASSETS = [
-    { id: "ai-index", name: "AI Index", icon: "🤖", kind: "synthetic" },
-    { id: "cricket-index", name: "Cricket Index", icon: "🏏", kind: "synthetic" },
-    { id: "stock", name: "سهم", icon: "📈", kind: "stock" },
-    { id: "eurusd-otc", name: "EUR / USD (OTC)", icon: "🇪🇺", kind: "otc" },
-    { id: "usdjpy-otc", name: "USD / JPY (OTC)", icon: "🇯🇵", kind: "otc" },
-    { id: "gbpusd-otc", name: "GBP / USD (OTC)", icon: "🇬🇧", kind: "otc" },
-    { id: "football-index", name: "Football Index", icon: "⚽", kind: "synthetic" },
-    { id: "luxury-index", name: "Luxury Index", icon: "💎", kind: "synthetic" },
-    { id: "smarty", name: "Smarty", icon: "🧠", kind: "smarty" },
-    { id: "usdchf-otc", name: "USD / CHF (OTC)", icon: "🇨🇭", kind: "otc" },
-    { id: "silver-otc", name: "Silver (OTC)", icon: "🥈", kind: "otc" },
-    { id: "nzdusd-otc", name: "NZD / USD (OTC)", icon: "🇳🇿", kind: "otc" },
-  ];
+  const EO_ICONS = {
+    "ai-index": "🤖", "cricket-index": "🏏", "football-index": "⚽", "luxury-index": "💎",
+    "smarty": "🧠", "eurusd-otc": "🇪🇺", "gbpusd-otc": "🇬🇧", "usdjpy-otc": "🇯🇵", "usdchf-otc": "🇨🇭",
+  };
+  let eoAssets = [];
   let selectedEOAsset = "";
-  function renderEOAssets() {
+  const eoOut = () => $("#eo-analysis-result");
+
+  function renderEOAssets(notice) {
     const box = $("#eo-assets");
     if (!box) return;
-    box.innerHTML = EO_ASSETS.map((asset) => '<button type="button" class="eo-asset' +
-      (selectedEOAsset === asset.id ? ' active' : '') + '" data-eo-asset="' + asset.id + '">' +
-      '<span class="eo-asset-icon" aria-hidden="true">' + asset.icon + '</span>' +
-      '<span class="eo-asset-copy"><strong>' + esc(asset.name) + '</strong></span></button>').join("");
+    if (!eoAssets.length) {
+      box.innerHTML = '<p class="eo-empty">' + esc(notice || eoT("لا توجد أصول متاحة من جلسة الحساب.", "No assets are available from the account session.")) + "</p>";
+      $("#eo-expiry-wrap").classList.add("hidden");
+      return;
+    }
+    box.innerHTML = eoAssets.map((asset) => '<button type="button" class="eo-asset' +
+      (selectedEOAsset === asset.key ? " active" : "") + '" data-eo-asset="' + esc(asset.key) + '"' +
+      (asset.available ? "" : " disabled") + '>' +
+      '<span class="eo-asset-icon" aria-hidden="true">' + (EO_ICONS[asset.key] || "📊") + "</span>" +
+      '<span class="eo-asset-copy"><strong>' + esc((window.I18N && window.I18N.lang === "en" ? asset.label_en : asset.label_ar) || asset.label_en || asset.label_ar) + "</strong>" +
+      '<small>' + esc(asset.available ? (asset.name || "") : eoT("غير متاح في الحساب", "Not available in this account")) + "</small></span></button>").join("");
     box.querySelectorAll("[data-eo-asset]").forEach((btn) => btn.addEventListener("click", () => {
-      selectedEOAsset = btn.dataset.eoAsset;
+      const asset = eoAssets.find((a) => a.key === btn.dataset.eoAsset);
+      if (!asset || !asset.available) return;
+      selectedEOAsset = asset.key;
       renderEOAssets();
       $("#eo-analyze-selected").disabled = false;
       $("#eo-expiry-wrap").classList.remove("hidden");
-      $("#eo-analysis-result").textContent = "تم اختيار " + EO_ASSETS.find((a) => a.id === selectedEOAsset).name + " — اختر المدة ثم ابدأ التحليل.";
-      $("#eo-analysis-result").className = "eo-analysis-result";
+      eoOut().className = "eo-analysis-result";
+      eoOut().textContent = eoT("تم اختيار " + (asset.label_ar || asset.label_en) + " — اختر المدة ثم ابدأ التحليل.", (asset.label_en || asset.label_ar) + " selected — choose an expiry, then start the analysis.");
     }));
   }
+
+  function eoT(ar, en) {
+    return window.I18N && window.I18N.lang === "en" ? en : ar;
+  }
+
+  async function loadEOAssets() {
+    const out = eoOut();
+    eoAssets = [];
+    selectedEOAsset = "";
+    $("#eo-analyze-selected").disabled = true;
+    out.className = "eo-analysis-result";
+    out.textContent = eoT("جارٍ قراءة الأصول من جلسة ExpertOption…", "Reading assets from the ExpertOption session…");
+    try {
+      const data = await api("/expertoption/assets");
+      eoAssets = Array.isArray(data.assets) ? data.assets : [];
+      const available = eoAssets.filter((a) => a.available);
+      const detail = data.detail_en || data.detail_ar || data.detail;
+      if (!available.length) {
+        renderEOAssets(eoT("لم تُرجِع الجلسة أي أصل من الأصول المطلوبة.", detail || "The session did not return any of the requested assets."));
+        out.textContent = detail || eoT("لا توجد أصول متاحة من الجلسة.", "No assets are available from the session.");
+        out.className = "eo-analysis-result error";
+        return;
+      }
+      renderEOAssets();
+      out.textContent = eoT(
+        "أصول متاحة: " + available.length + " — اختر أصلاً لعرض حالة توفر بياناته.",
+        available.length + " assets available — pick one to see its data availability."
+      );
+    } catch (err) {
+      const detail = err.data && (err.data.detail_en || err.data.detail_ar || err.data.detail);
+      renderEOAssets(detail);
+      out.textContent = detail || err.message;
+      out.className = "eo-analysis-result error";
+    }
+  }
+
+  function renderEOAnalysis(result) {
+    const labels = {
+      UP: eoT("UP — صعود ⬆️", "UP — bullish ⬆️"),
+      DOWN: eoT("DOWN — هبوط ⬇️", "DOWN — bearish ⬇️"),
+      "NO TRADE": eoT("NO TRADE — لا توجد فرصة واضحة ⏸️", "NO TRADE — no clear setup ⏸️"),
+    };
+    const ind = result.indicators || {};
+    const sr = result.support_resistance || {};
+    const st = result.structure || {};
+    const cls = result.direction === "UP" ? "up" : (result.direction === "DOWN" ? "down" : "flat");
+    if (!result.ok) {
+      const reason = result.reason_en || result.reason_ar || result.detail_en || result.detail_ar || result.detail || eoT("تعذر التحليل.", "Analysis failed.");
+      return '<div class="eo-signal flat"><strong>NO TRADE</strong><span>' + esc(reason) + "</span></div>";
+    }
+    const reasons = (window.I18N && window.I18N.lang === "en" ? (result.reasons_en || result.reasons_ar) || [] : result.reasons_ar || [])
+      .slice(0, 6).map((r) => "<li>" + esc(r) + "</li>").join("");
+    const rows = [
+      [eoT("السعر الحالي", "Current price"), result.price],
+      [eoT("آخر تحديث للبيانات", "Last data update"), result.price_time],
+      [eoT("الفريم", "Timeframe"), result.timeframe],
+      [eoT("المدة المقترحة", "Suggested expiry"), result.expiry_label_en && window.I18N && window.I18N.lang === "en" ? result.expiry_label_en : result.expiry_label_ar],
+      [eoT("الاتجاه", "Trend"), result.trend],
+      [eoT("الثقة التقديرية", "Estimated confidence"), Math.round(Number(result.confidence || 0) * 100) + "%"],
+      [eoT("الدعم", "Support"), sr.support],
+      [eoT("المقاومة", "Resistance"), sr.resistance],
+      ["RSI", ind.rsi],
+      ["MACD / Signal / Hist", [ind.macd, ind.macd_signal, ind.macd_hist].join(" / ")],
+      ["EMA20 / 50 / 200", [ind.ema20, ind.ema50, ind.ema200].join(" / ")],
+      ["ADX / ATR", [ind.adx, ind.atr].join(" / ")],
+      ["BOS / CHoCH", [st.bos || "—", st.choch || "—"].join(" / ")],
+      ["FVG / Order Blocks", (st.fvg || []).length + " / " + (st.order_blocks || []).length],
+      [eoT("سحب السيولة", "Liquidity sweep"), st.liquidity_sweep && st.liquidity_sweep.sweep ? st.liquidity_sweep.sweep : "—"],
+    ];
+    return '<div class="eo-signal ' + cls + '"><strong>' + (labels[result.direction] || labels["NO TRADE"]) + "</strong>" +
+      "<span>" + esc(result.asset && result.asset.name ? result.asset.name : "") + " · " + esc(result.candles || 0) + eoT(" شمعة", " candles") + "</span></div>" +
+      '<dl class="eo-facts">' + rows.map(([k, v]) => "<div><dt>" + esc(k) + "</dt><dd>" + esc(v == null || v === "" ? "—" : v) + "</dd></div>").join("") + "</dl>" +
+      (reasons ? '<h3 class="eo-reasons-title">' + eoT("سبب القرار", "Decision reasons") + '</h3><ul class="eo-reasons">' + reasons + "</ul>" : "") +
+      '<p class="eo-footnote">' + eoT("المصدر: بوابة بيانات ExpertOption المصرح بها · تحليل فقط بدون تنفيذ صفقات", "Source: authorized ExpertOption data gateway · analysis only, no order execution") +
+      (result.ai && result.ai.reviewed ? eoT(" · مراجعة Mistral", " · reviewed by Mistral") : eoT(" · قواعد فقط", " · rules only") + (result.ai && result.ai.error ? " (" + esc(result.ai.error) + ")" : "")) + "</p>";
+  }
+
   async function analyzeEOSelected() {
     if (!selectedEOAsset) return;
     const btn = $("#eo-analyze-selected");
-    const out = $("#eo-analysis-result");
-    btn.disabled = true; btn.textContent = "جارٍ التحقق من البيانات…";
+    const out = eoOut();
+    btn.disabled = true;
+    btn.textContent = eoT("جارٍ التحقق من البيانات…", "Verifying data…");
     out.className = "eo-analysis-result";
+    out.textContent = eoT("جارٍ قراءة الشموع وتحليل المؤشرات…", "Reading candles and analysing indicators…");
     try {
       const result = await api("/expertoption/auto-analysis", { method: "POST", body: JSON.stringify({
         asset_id: selectedEOAsset, expiry: $("#eo-expiry").value,
       }) });
-      out.textContent = result.message || "لا توجد بيانات كافية لإصدار إشارة.";
+      out.innerHTML = renderEOAnalysis(result);
     } catch (err) {
-      out.textContent = err.message;
-      out.className = "eo-analysis-result error";
-    } finally { btn.disabled = false; btn.textContent = "حلّل الأصل المحدد"; }
+      const payload = (err.data && (err.data.reason_code || err.data.direction)) ? err.data : null;
+      if (payload) {
+        out.innerHTML = renderEOAnalysis(payload);
+      } else {
+        out.textContent = (err.data && (err.data.detail_en || err.data.detail_ar || err.data.detail)) || err.message;
+        out.className = "eo-analysis-result error";
+      }
+    } finally {
+      btn.disabled = false;
+      btn.textContent = eoT("حلّل الأصل المحدد", "Analyse selected asset");
+    }
   }
 
   let toastTimer = null;
@@ -116,7 +205,11 @@
       }
     }
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.detail || ("HTTP " + res.status));
+    if (!res.ok) {
+      const error = new Error(data.detail || data.reason_ar || ("HTTP " + res.status));
+      error.data = data;
+      throw error;
+    }
     return data;
   }
 
@@ -947,13 +1040,13 @@
     $("#run-analysis").addEventListener("click", runAnalysis);
     $("#analyze-chart-image").addEventListener("click", analyzeChartImage);
     $("#scanner-start").addEventListener("click", startScanning);
-    renderEOAssets();
     $("#eo-auto-toggle").addEventListener("click", () => {
       const controls = $("#eo-auto-controls");
       const opening = controls.classList.contains("hidden");
       controls.classList.toggle("hidden", !opening);
       $("#eo-auto-toggle").setAttribute("aria-expanded", String(opening));
       $("#eo-auto-toggle").textContent = opening ? "إخفاء الأصول" : "حلّل تلقائي";
+      if (opening) loadEOAssets();
     });
     $("#eo-analyze-selected").addEventListener("click", analyzeEOSelected);
     $("#scanner-stop").addEventListener("click", stopScanning);

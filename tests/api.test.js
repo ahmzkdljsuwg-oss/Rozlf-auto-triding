@@ -238,3 +238,40 @@ test('demo lifecycle opens, blocks duplicates and closes with real P/L', async (
   assert.ok(closed.pnl > 0);
   assert.ok(engine.accountBalance > 10000);
 });
+
+test('ExpertOption auto analysis refuses to answer without the authorized session', async (t) => {
+  const { base } = await boot(t);
+  const before = await call(base, '/api/expertoption/assets');
+  assert.equal(before.status, 409);
+
+  const eo = await call(base, '/api/connect', {
+    method: 'POST',
+    body: {
+      platform: 'expertoption', account_type: 'demo',
+      login: 'demo@example.com', session_token: 'session-token',
+    },
+  });
+  assert.equal(eo.status, 200);
+
+  const assets = await call(base, '/api/expertoption/assets');
+  assert.equal(assets.status, 409);
+  assert.equal(assets.body.ok, false);
+  assert.equal(assets.body.source_ready, false);
+  assert.ok(assets.body.detail_ar);
+
+  const badExpiry = await call(base, '/api/expertoption/auto-analysis', {
+    method: 'POST', body: { asset_id: 'smarty', expiry: '7m' },
+  });
+  assert.equal(badExpiry.status, 422);
+
+  const analysis = await call(base, '/api/expertoption/auto-analysis', {
+    method: 'POST', body: { asset_id: 'smarty', expiry: '1m' },
+  });
+  assert.equal(analysis.status, 424);
+  assert.equal(analysis.body.ok, false);
+  assert.equal(analysis.body.direction, 'NO TRADE');
+  assert.equal(analysis.body.reason_code, 'not_connected');
+  assert.equal(analysis.body.execution_allowed, false);
+  assert.equal(analysis.body.data_verified, false);
+  assert.ok(analysis.body.reason_ar);
+});

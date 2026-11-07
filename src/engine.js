@@ -10,7 +10,8 @@ const { RiskManager, DEFAULTS } = require('./risk');
 const { PaperBroker } = require('./brokers/paper');
 const { MT5Broker } = require('./brokers/mt5');
 const { ExpertOptionBroker } = require('./brokers/expertoption');
-const { ExpertOptionSession, SOURCE_REASON_EN, SOURCE_REASON_AR } = require('./expertoption-session');
+const { ExpertOptionSession, SOURCE_REASON_EN, SOURCE_REASON_AR, GATEWAY_REASON_EN, GATEWAY_REASON_AR } = require('./expertoption-session');
+const { describeAssets, analyzeAsset, EXPIRY_KEYS, ASSET_KEYS } = require('./expertoption-analysis');
 const { RozlfAnalyzer } = require('./ai');
 const { TelegramNotifier } = require('./telegram');
 const { renderTradeChart, renderResultChart } = require('./charts');
@@ -232,8 +233,9 @@ class TradingEngine {
       this.account = await this.db.getAccount(accountRow.id);
       this.expertOptionSession = new ExpertOptionSession({
         login,
-        tokenPresent: Boolean(secret || config.EXPERTOPTION_SESSION_COOKIE),
+        tokenPresent: Boolean(secret || config.EXPERTOPTION_SESSION_COOKIE || config.EXPERTOPTION_API_KEY),
         accountType,
+        token: config.EXPERTOPTION_API_KEY || sessionToken || '',
       });
       this.broker = null;
       this.executionMode = 'analysis_only';
@@ -250,18 +252,41 @@ class TradingEngine {
       this.accountCurrency = 'USD';
       this.accountSynced = false;
       this.accountSyncAt = null;
-      this.accountSyncError =
-        'ExpertOption session token stored but not verified: no official account API is available.';
+      this.accountSyncError = this.expertOptionSession.configured
+        ? 'ExpertOption gateway configured; waiting for session verification.'
+        : 'ExpertOption session token stored but not verified: no authorized data gateway is configured.';
       this.emergency = false;
       this.lastError = null;
       this.opportunities = [];
       this._lastTradeAt.clear();
       this.scanner.reset();
       this.scanner.bindAccount(this.account);
-      await this.db.addLog('info', 'broker', `ExpertOption token received for ${login} (unverified)`, {
+      await this.db.addLog('info', 'broker', `ExpertOption token received for ${login}`, {
         mode: 'analysis_only',
         token_stored: Boolean(secret),
+        gateway_configured: this.expertOptionSession.configured,
       });
+      if (this.expertOptionSession.configured) {
+        const verified = await this.expertOptionSession.verify();
+        if (verified.verified && verified.account) {
+          this.accountSynced = true;
+          this.accountSyncAt = new Date().toISOString();
+          this.accountSyncError = null;
+          this.accountBalance = Number(verified.account.balance) || 0;
+          this.accountEquity = Number(verified.account.equity) || this.accountBalance;
+          this.marginFree = Number(verified.account.free_margin) || 0;
+          this.marginUsed = Number(verified.account.used_margin) || 0;
+          this.accountCurrency = verified.account.currency || 'USD';
+          await this.db.setAccountStatus(this.account.id, 'connected');
+          await this.db.addLog('info', 'broker', 'ExpertOption session verified through the authorized gateway', {
+            balance: this.accountBalance, currency: this.accountCurrency,
+          });
+        } else {
+          await this.db.setAccountStatus(this.account.id, 'token_unverified');
+          this.accountSyncError = verified.last_error || 'ExpertOption session verification failed';
+          await this.db.addLog('warn', 'broker', `ExpertOption session not verified: ${this.accountSyncError}`);
+        }
+      }
       return this.status();
     }
 
@@ -466,6 +491,9 @@ class TradingEngine {
   }
 
   async syncAccount() {
+    if (this.platform === 'expertoption' && this.expertOptionSession) {
+      return this.syncExpertOptionAccount();
+    }
     if (!this.broker || !this.account || this.analysisOnly) return;
     try {
       const info = await this.broker.accountInfo();
@@ -505,6 +533,39 @@ class TradingEngine {
     }
   }
 
+  async syncExpertOptionAccount() {
+    const session = this.expertOptionSession;
+    if (!this.account) return null;
+    try {
+      if (!session || !session.configured) throw new Error(GATEWAY_REASON_EN);
+      if (!session.verified) await session.verify();
+      const info = await session.accountInfo();
+      this.accountBalance = Number(info.balance);
+      this.accountEquity = Number(info.equity);
+      this.marginFree = Number(info.free_margin || 0);
+      this.marginUsed = Number(info.used_margin || 0);
+      this.marginLevel = null;
+      this.accountCurrency = info.currency || 'USD';
+      this.accountSynced = true;
+      this.accountSyncAt = info.read_at || utcnow();
+      this.accountSyncError = null;
+      await this.db.setAccountSync(this.account.id, {
+        status: 'connected', balance: this.accountBalance, equity: this.accountEquity,
+        margin_free: this.marginFree, margin_used: this.marginUsed, margin_level: null,
+        currency: this.accountCurrency, synced_at: this.accountSyncAt,
+      });
+      this.account.balance = this.accountBalance;
+      this.account.equity = this.accountEquity;
+      this.account.synced_at = this.accountSyncAt;
+      return info;
+    } catch (err) {
+      this.accountSynced = false;
+      this.accountSyncError = String(err.message || 'account sync failed').slice(0, 300);
+      await this.db.setAccountStatus(this.account.id, 'disconnected').catch(() => {});
+      return null;
+    }
+  }
+
   async loadSnapshots(symbol, maxAge = 45) {
     const snaps = {};
     for (const timeframe of config.TIMEFRAMES) {
@@ -535,6 +596,84 @@ class TradingEngine {
     };
   }
 
+  async expertOptionAssets() {
+    if (this.platform !== 'expertoption' || !this.expertOptionSession) {
+      return { ok: false, detail: 'اتصل بجلسة ExpertOption أولاً.', assets: [], source_ready: false };
+    }
+    const session = this.expertOptionSession;
+    if (!session.configured) {
+      return {
+        ok: false,
+        detail: GATEWAY_REASON_EN,
+        detail_ar: GATEWAY_REASON_AR,
+        assets: describeAssets([]),
+        source_ready: false,
+        listed: false,
+      };
+    }
+    if (!session.verified) {
+      const status = await session.verify();
+      if (!status.verified) {
+        return {
+          ok: false,
+          detail: status.last_error || SOURCE_REASON_EN,
+          detail_ar: 'تعذر التحقق من جلسة ExpertOption.',
+          assets: describeAssets([]),
+          source_ready: false,
+          listed: false,
+        };
+      }
+    }
+    try {
+      const instruments = await session.markets({ force: true });
+      const assets = describeAssets(instruments);
+      return {
+        ok: true,
+        detail: null,
+        assets,
+        instruments: instruments.length,
+        available: assets.filter((a) => a.available).length,
+        source_ready: true,
+        listed: true,
+        source: { provider: 'ExpertOption authorized gateway', verified: true },
+      };
+    } catch (err) {
+      if (err.code === 'session_expired') {
+        return { ok: false, detail: err.message, assets: describeAssets([]), source_ready: false, listed: false, reconnect_required: true };
+      }
+      return { ok: false, detail: String(err.message || 'تعذر قراءة قائمة الأصول'), assets: describeAssets([]), source_ready: false, listed: false };
+    }
+  }
+
+  async expertOptionAnalyze(assetKey, expiry) {
+    if (this.platform !== 'expertoption' || !this.expertOptionSession) {
+      return { ok: false, direction: 'NO TRADE', reason_code: 'no_session', reason_ar: 'اتصل بجلسة ExpertOption أولاً.', execution_allowed: false };
+    }
+    if (!ASSET_KEYS.has(String(assetKey))) {
+      return { ok: false, direction: 'NO TRADE', reason_code: 'bad_asset', reason_ar: 'أصل غير معروف.', execution_allowed: false };
+    }
+    if (!EXPIRY_KEYS.has(String(expiry))) {
+      return { ok: false, direction: 'NO TRADE', reason_code: 'bad_expiry', reason_ar: 'مدة غير مدعومة.', execution_allowed: false };
+    }
+    if (this.expertOptionSession.configured && !this.expertOptionSession.verified) {
+      await this.expertOptionSession.verify();
+    }
+    const result = await analyzeAsset({
+      session: this.expertOptionSession,
+      assetKey: String(assetKey),
+      expiry: String(expiry),
+      analyzer: this.analyzer,
+    });
+    if (result.ok) await this.syncExpertOptionAccount().catch(() => {});
+    await this.db.addLog(result.ok ? 'info' : 'warn', 'expertoption_analysis',
+      `Automatic analysis ${result.ok ? result.direction : `blocked: ${result.reason_code}`}`, {
+        asset: String(assetKey), expiry: String(expiry),
+        direction: result.direction, reason_code: result.reason_code || null,
+        price: result.price || null, ai_reviewed: Boolean(result.ai?.reviewed),
+      });
+    return result;
+  }
+
   async status() {
     const risk = this.risk.settings;
     let openTrades = [];
@@ -560,17 +699,29 @@ class TradingEngine {
       account_status: this.analysisOnly ? 'analysis' : (this.accountSynced ? 'connected' : 'disconnected'),
       expertoption: this.expertOptionSession ? this.expertOptionSession.status() : null,
       market_data_source: this.platform === 'expertoption'
-        ? {
-            provider: 'Yahoo Finance',
-            kind: 'public_reference',
-            account_session_data: false,
-            broker_approved: false,
-            available: true,
-            reason_en: SOURCE_REASON_EN,
-            reason_ar: SOURCE_REASON_AR,
-            note_en: 'Analysis uses public reference candles, not ExpertOption account data.',
-            note_ar: 'التحليل يستخدم شموعاً مرجعية عامة وليس بيانات حساب ExpertOption.',
-          }
+        ? (this.expertOptionSession && this.expertOptionSession.verified
+          ? {
+              provider: 'ExpertOption authorized gateway',
+              kind: 'account_session',
+              account_session_data: true,
+              broker_approved: false,
+              available: true,
+              reason_en: null,
+              reason_ar: null,
+              note_en: 'Candles come from the configured ExpertOption data gateway for this account.',
+              note_ar: 'الشموع تأتي من بوابة بيانات ExpertOption المهيأة لهذا الحساب.',
+            }
+          : {
+              provider: 'Yahoo Finance',
+              kind: 'public_reference',
+              account_session_data: false,
+              broker_approved: false,
+              available: true,
+              reason_en: SOURCE_REASON_EN,
+              reason_ar: SOURCE_REASON_AR,
+              note_en: 'ExpertOption session data is not verified; the scanner uses public reference candles only.',
+              note_ar: 'بيانات جلسة ExpertOption غير متحققة؛ الماسح يستخدم شموعاً مرجعية عامة فقط.',
+            })
         : {
             provider: 'Yahoo Finance',
             kind: 'public_reference',

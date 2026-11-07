@@ -66,3 +66,56 @@
 
 عندها فقط يمكن تنفيذ `ExpertOptionSession` الحقيقي خلف نفس الواجهة، مع اختبار Demo فعلي،
 ودون تغيير قواعد إدارة المخاطر أو إيقاف الصفقات عند فقدان الاتصال.
+
+## بوابة البيانات المصرح بها (تحديث 2026-11-07)
+
+بدلاً من محاكاة المنصة، صار كود الجلسة `src/expertoption-session.js` يعمل كـ **محوّل بوابة
+مصرح بها**: يقرأ البيانات من خدمة يملك المشغّل حق استخدامها لحسابه، ولا يتصل بأي واجهة غير
+موثقة ولا يعيد استخدام Cookies لتنفيذ أوامر.
+
+المتغيرات المطلوبة (تُضبط كأسرار في Render، ولا تُحفظ في المستودع):
+
+| المتغير | الوظيفة |
+| --- | --- |
+| `EXPERTOPTION_API_BASE_URL` | عنوان بوابة البيانات المصرح بها (HTTPS). |
+| `EXPERTOPTION_API_KEY` | مفتاح البوابة، يُرسل كـ `Authorization: Bearer`. |
+| `EXPERTOPTION_API_ACCOUNT` | معرّف الحساب داخل البوابة (اختياري). |
+| `EXPERTOPTION_API_TIMEOUT_MS` | مهلة الطلب، الافتراضي 10000. |
+| `EXPERTOPTION_API_MIN_INTERVAL_MS` | أقل تباعد بين الطلبات، الافتراضي 250. |
+| `EXPERTOPTION_API_RETRIES` | عدد إعادات المحاولة عند فشل الشبكة، 0–5. |
+| `EXPERTOPTION_MAX_CANDLE_AGE_SECONDS` | أقدم شمعة مقبولة قبل رفض التحليل، الافتراضي 180. |
+| `EXPERTOPTION_MIN_CANDLES` | أقل عدد شموع مطلوب، الافتراضي 80. |
+
+### عقد البوابة
+
+كل الردود JSON وتُقرأ عبر HTTPS بمفتاح Bearer:
+
+| المسار | الاستجابة |
+| --- | --- |
+| `GET /session` | `{ ok, account: { login, type, currency, balance, equity, free_margin, used_margin }, expires_at }` |
+| `GET /account` | `{ account: { ... } }` لقراءة الرصيد المحدث |
+| `GET /instruments` | `{ instruments: [ { id, symbol, name, category, otc, expiries } ] }` |
+| `GET /candles?instrument_id=&timeframe=&limit=` | `{ candles: [ { time, open, high, low, close, volume } ] }` |
+
+زمن الشمعة بالثواني أو بالميلي ثانية، ويُوحَّد داخلياً. أي شمعة ناقصة أو غير رقمية تُرفض
+بدلاً من تقديرها.
+
+### ما يفعله التطبيق فعلياً
+
+1. تحقّق الجلسة: يقرأ `/session`، وإن فشل فلا يظهر الاتصال كمتصل أبداً.
+2. قراءة الأصول: من `/instruments` فقط، ثم مطابقة الأصول المطلوبة (Smarty، Cricket Index،
+   Football Index، AI Index، Luxury Index، EUR/USD OTC، GBP/USD OTC، USD/JPY OTC،
+   USD/CHF OTC) بالاسم أو الرمز. المعرّفات القديمة (240/276/278/285/286/179/180/181/182)
+   لا تُستخدم إلا بعد تطابقها مع القائمة الحقيقية.
+3. قراءة الشموع وتصفيتها ومنع التكرار، ثم رفض التحليل إذا كانت الشمعة الأخيرة أقدم من الحد.
+4. حساب RSI وMACD وEMA وBollinger وATR وADX، ثم BOS/CHoCH/FVG وOrder Blocks وسحب السيولة.
+5. إسناد قاعدة النقاط، ثم مراجعة Mistral على لقطة بيانات حقيقية. أي تعارض أو ثقة أقل من 55%
+   يعطي `NO TRADE` مع سبب واضح.
+6. `execution_allowed` يبقى `false` دائماً: لا يوجد تنفيذ على ExpertOption.
+
+### حدود يجب معرفتها
+
+- بدون `EXPERTOPTION_API_BASE_URL` و`EXPERTOPTION_API_KEY` تظهر الحالة «غير متحققة» ولا
+  يُعرض أي سعر أو إشارة. لا تُملأ الفراغات ببيانات بديلة.
+- بوابة البيانات لا تعني صلاحية تنفيذ: التنفيذ يظل معطلاً لأن شروط المنصة تمنع البوتات.
+- Render لا يضمن تشغيلاً متصلاً 24 ساعة على الخطة المجانية (توقف عند الخمول وإعادة نشر).

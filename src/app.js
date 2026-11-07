@@ -6,7 +6,7 @@ const express = require('express');
 const config = require('./config');
 const { dashboardTokenOk } = require('./security');
 const { RISK_KEYS } = require('./engine');
-const { INTEGRATION_STATUS } = require('./expertoption-session');
+const { integrationStatus } = require('./expertoption-session');
 
 function fail(res, status, detail) {
   return res.status(status).json({ detail });
@@ -130,19 +130,42 @@ function createApp({ engine }) {
   });
 
   app.get('/api/expertoption/integration', (req, res) => {
-    res.json(INTEGRATION_STATUS);
+    res.json(integrationStatus());
   });
 
   app.post('/api/expertoption/verify', async (req, res) => {
     if (!engine.expertOptionSession) return fail(res, 409, 'No ExpertOption session is attached');
     const status = await engine.expertOptionSession.verify();
-    res.status(409).json({
+    if (status.verified && status.account) {
+      const synced = await engine.syncAccount().catch(() => null);
+      return res.json({
+        ok: true,
+        verified: true,
+        connection_state: status.connection_state,
+        account: status.account,
+        account_sync: synced ? { synced: true } : { synced: false },
+        official_api_available: false,
+        execution_allowed: false,
+      });
+    }
+    return res.status(409).json({
       ok: false,
-      detail: status.reason_en,
+      detail: status.last_error || status.reason_en,
       connection_state: status.connection_state,
+      gateway_configured: status.gateway_configured,
+      token_present: status.token_present,
       verified: false,
       official_api_available: false,
+      next_step_ar: integrationStatus().next_step_ar,
     });
+  });
+
+  app.get('/api/expertoption/assets', async (req, res) => {
+    if (!engine.account || engine.platform !== 'expertoption') {
+      return fail(res, 409, 'اتصل بجلسة ExpertOption أولاً.');
+    }
+    const result = await engine.expertOptionAssets();
+    res.status(result.ok ? 200 : 409).json(result);
   });
 
   app.post('/api/disconnect', async (req, res) => {
@@ -183,24 +206,26 @@ function createApp({ engine }) {
 
   app.post('/api/expertoption/auto-analysis', async (req, res) => {
     const body = req.body || {};
-    const allowedAssets = new Set([
-      'ai-index', 'cricket-index', 'stock', 'eurusd-otc', 'usdjpy-otc', 'gbpusd-otc',
-      'football-index', 'luxury-index', 'smarty', 'usdchf-otc', 'silver-otc', 'nzdusd-otc',
-    ]);
     const allowedExpiries = new Set(['30s', '1m', '2m', '3m', '5m']);
-    if (!allowedAssets.has(String(body.asset_id || ''))) return fail(res, 422, 'اختر أصلاً من قائمة ExpertOption.');
+    if (!body.asset_id) return fail(res, 422, 'اختر أصلاً من قائمة ExpertOption.');
     if (!allowedExpiries.has(String(body.expiry || ''))) return fail(res, 422, 'مدة التحليل غير مدعومة.');
     if (!engine.account || engine.platform !== 'expertoption') {
       return fail(res, 409, 'اتصل بجلسة ExpertOption أولاً.');
     }
-    await engine.db.addLog('info', 'expertoption_analysis', 'Automatic analysis requested without an approved platform feed', {
-      asset_id: String(body.asset_id), expiry: String(body.expiry),
-    });
-    return res.status(424).json({
-      detail: 'تم اختيار الأصل والمدة، لكن لا تتوفر حالياً واجهة بيانات مباشرة ومصرّح بها لقراءة أسعار هذا الأصل من ExpertOption. لم يتم إنشاء إشارة أو نسبة ثقة. نحتاج مصدراً مباشراً موثوقاً قبل تفعيل التحليل التلقائي.',
-      asset_id: String(body.asset_id), expiry: String(body.expiry),
-      signal: 'NO TRADE', data_verified: false, gemini_reviewed: false,
-    });
+    const result = await engine.expertOptionAnalyze(String(body.asset_id), String(body.expiry));
+    const payload = {
+      ...result,
+      asset_id: String(body.asset_id),
+      expiry: String(body.expiry),
+      execution_allowed: false,
+      ai_reviewed: Boolean(result.ai && result.ai.reviewed),
+    };
+    if (result.ok && result.direction !== 'NO TRADE' && engine.telegram) {
+      engine.telegram
+        .sendExpertOptionAnalysis(payload, { source: 'site' })
+        .catch((err) => engine.db.addLog('warn', 'telegram', `ExpertOption analysis notification failed: ${err.message}`).catch(() => {}));
+    }
+    return res.status(result.ok ? 200 : 424).json(payload);
   });
 
   app.get('/api/scanner', async (req, res) => {
