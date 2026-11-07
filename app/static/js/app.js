@@ -54,7 +54,7 @@
     { id: "gbpusd-otc", name: "GBP / USD (OTC)", icon: "🇬🇧", kind: "otc" },
     { id: "football-index", name: "Football Index", icon: "⚽", kind: "synthetic" },
     { id: "luxury-index", name: "Luxury Index", icon: "💎", kind: "synthetic" },
-    { id: "smarty", name: "Smarty", icon: "🔷", kind: "smarty" },
+    { id: "smarty", name: "Smarty", icon: "🧠", kind: "smarty" },
     { id: "usdchf-otc", name: "USD / CHF (OTC)", icon: "🇨🇭", kind: "otc" },
     { id: "silver-otc", name: "Silver (OTC)", icon: "🥈", kind: "otc" },
     { id: "nzdusd-otc", name: "NZD / USD (OTC)", icon: "🇳🇿", kind: "otc" },
@@ -66,12 +66,12 @@
     box.innerHTML = EO_ASSETS.map((asset) => '<button type="button" class="eo-asset' +
       (selectedEOAsset === asset.id ? ' active' : '') + '" data-eo-asset="' + asset.id + '">' +
       '<span class="eo-asset-icon" aria-hidden="true">' + asset.icon + '</span>' +
-      '<span class="eo-asset-copy"><strong>' + esc(asset.name) + '</strong><small>ExpertOption</small></span>' +
-      '<span class="eo-asset-state">يتطلب مصدر مباشر</span></button>').join("");
+      '<span class="eo-asset-copy"><strong>' + esc(asset.name) + '</strong></span></button>').join("");
     box.querySelectorAll("[data-eo-asset]").forEach((btn) => btn.addEventListener("click", () => {
       selectedEOAsset = btn.dataset.eoAsset;
       renderEOAssets();
       $("#eo-analyze-selected").disabled = false;
+      $("#eo-expiry-wrap").classList.remove("hidden");
       $("#eo-analysis-result").textContent = "تم اختيار " + EO_ASSETS.find((a) => a.id === selectedEOAsset).name + " — اختر المدة ثم ابدأ التحليل.";
       $("#eo-analysis-result").className = "eo-analysis-result";
     }));
@@ -948,6 +948,13 @@
     $("#analyze-chart-image").addEventListener("click", analyzeChartImage);
     $("#scanner-start").addEventListener("click", startScanning);
     renderEOAssets();
+    $("#eo-auto-toggle").addEventListener("click", () => {
+      const controls = $("#eo-auto-controls");
+      const opening = controls.classList.contains("hidden");
+      controls.classList.toggle("hidden", !opening);
+      $("#eo-auto-toggle").setAttribute("aria-expanded", String(opening));
+      $("#eo-auto-toggle").textContent = opening ? "إخفاء الأصول" : "حلّل تلقائي";
+    });
     $("#eo-analyze-selected").addEventListener("click", analyzeEOSelected);
     $("#scanner-stop").addEventListener("click", stopScanning);
     $("#scanner-trade").addEventListener("click", scannerTrade);

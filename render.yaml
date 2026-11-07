@@ -39,5 +39,7 @@ services:
         sync: false
       - key: TELEGRAM_CHAT_ID
         sync: false
+      - key: EXPERTOPTION_SESSION_COOKIE
+        sync: false
       - key: SCAN_INTERVAL_SECONDS
         value: "60"

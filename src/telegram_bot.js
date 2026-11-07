@@ -26,6 +26,7 @@ class TelegramBotController {
     this._loopPromise = null;
     this._lastError = '';
     this._pending = new Map();
+    this.eoSelection = new Map();
   }
 
   get enabled() {
@@ -95,6 +96,29 @@ class TelegramBotController {
       parse_mode: 'HTML',
       reply_markup: keyboard,
     });
+  }
+
+
+  expertOptionAssetsKeyboard() {
+    const assets = [
+      ['ai-index','🤖 AI Index'], ['cricket-index','🏏 Cricket Index'], ['stock','📈 سهم'],
+      ['eurusd-otc','🇪🇺 EUR / USD (OTC)'], ['usdjpy-otc','🇯🇵 USD / JPY (OTC)'],
+      ['gbpusd-otc','🇬🇧 GBP / USD (OTC)'], ['football-index','⚽ Football Index'],
+      ['luxury-index','💎 Luxury Index'], ['smarty','🧠 Smarty'], ['usdchf-otc','🇨🇭 USD / CHF (OTC)'],
+      ['silver-otc','🥈 Silver (OTC)'], ['nzdusd-otc','🇳🇿 NZD / USD (OTC)'],
+    ];
+    return { inline_keyboard: assets.map(([id,label]) => [{ text: label, callback_data: `eoasset:${id}` }]).concat([[{ text: '🕘 آخر التوصيات', callback_data: 'action:eo_latest' }, { text: '⚙️ إعدادات التحليل', callback_data: 'menu:eo_settings' }],[{ text: '🔔 الإشعارات', callback_data: 'menu:notify' }],[{ text: '↩️ القائمة', callback_data: 'menu:main' }]]) };
+  }
+
+  expertOptionExpiryKeyboard() {
+    return { inline_keyboard: [[
+      { text: '30 ثانية', callback_data: 'eoexpiry:30s' },
+      { text: '1 دقيقة', callback_data: 'eoexpiry:1m' },
+    ], [
+      { text: 'دقيقتان', callback_data: 'eoexpiry:2m' },
+      { text: '3 دقائق', callback_data: 'eoexpiry:3m' },
+      { text: '5 دقائق', callback_data: 'eoexpiry:5m' },
+    ], [{ text: '↩️ الأصول', callback_data: 'menu:eo' }]] };
   }
 
   tradeKeyboard() {
@@ -173,6 +197,28 @@ class TelegramBotController {
       await this._answer(query, 'القائمة الرئيسية');
       return this._edit(query, '🤖 <b>ROZLF AUTO TRADER — لوحة التحكم</b>\nاختر قسمًا:', this.notifier.mainKeyboard());
     }
+    if (data === 'menu:eo') {
+      await this._answer(query, 'اختر أصل ExpertOption');
+      return this._edit(query, '📊 <b>ExpertOption — التحليل فقط</b>\nاختر الأصل ثم مدة التحليل. لا يتم تنفيذ صفقات.', this.expertOptionAssetsKeyboard());
+    }
+    if (data === 'menu:eo_settings') {
+      const enabled = await engine.db.getSetting('telegram.expertoption_notifications', true);
+      const keyboard = { inline_keyboard: [[{ text: `${enabled ? '✅' : '⬜'} إشعارات توصيات ExpertOption`, callback_data: 'eo:toggle_notifications' }],[{ text: '↩️ رجوع', callback_data: 'menu:eo' }]] };
+      await this._answer(query, 'إعدادات التحليل');
+      return this._edit(query, '⚙️ <b>إعدادات ExpertOption</b>\nتحكم في وصول التوصيات إلى Telegram.', keyboard);
+    }
+    if (data === 'action:eo_latest') {
+      await this._answer(query, 'آخر التوصيات');
+      return this._edit(query, '🕘 <b>آخر توصيات ExpertOption</b>\nلا توجد توصيات موثقة محفوظة حتى الآن. لن نعرض إشارة من دون بيانات سوق حقيقية.', this.expertOptionAssetsKeyboard());
+    }
+    if (data === 'eo:toggle_notifications') {
+      const current = await engine.db.getSetting('telegram.expertoption_notifications', true);
+      const enabled = !current;
+      await engine.db.setSetting('telegram.expertoption_notifications', enabled);
+      const keyboard = { inline_keyboard: [[{ text: `${enabled ? '✅' : '⬜'} إشعارات توصيات ExpertOption`, callback_data: 'eo:toggle_notifications' }],[{ text: '↩️ رجوع', callback_data: 'menu:eo' }]] };
+      await this._answer(query, enabled ? 'تم تفعيل إشعارات التوصيات' : 'تم إيقاف إشعارات التوصيات');
+      return this._edit(query, '⚙️ <b>إعدادات ExpertOption</b>', keyboard);
+    }
     if (data === 'menu:trade') {
       await this._answer(query, 'التداول');
       return this._edit(query, '▶️ <b>التحكم في التداول</b>\nكل الأوامر تُنفَّذ فعلياً وتُحفظ.', this.tradeKeyboard());
@@ -200,6 +246,25 @@ class TelegramBotController {
     if (data === 'menu:timeframes') {
       await this._answer(query, 'الفريم');
       return this._edit(query, '⏱ <b>اختيار الفريم</b>', this.timeframeKeyboard());
+    }
+
+    const eoAsset = /^eoasset:([a-z0-9-]+)$/.exec(data);
+    if (eoAsset) {
+      const allowed = new Set(['ai-index','cricket-index','stock','eurusd-otc','usdjpy-otc','gbpusd-otc','football-index','luxury-index','smarty','usdchf-otc','silver-otc','nzdusd-otc']);
+      if (!allowed.has(eoAsset[1])) return this._answer(query, 'أصل غير معروف', true);
+      this.eoSelection.set(String(chatId), { asset: eoAsset[1] });
+      await this._answer(query, 'تم اختيار الأصل');
+      return this._edit(query, '⏱ <b>اختر مدة التحليل</b>', this.expertOptionExpiryKeyboard());
+    }
+    const eoExpiry = /^eoexpiry:(30s|1m|2m|3m|5m)$/.exec(data);
+    if (eoExpiry) {
+      const selection = this.eoSelection.get(String(chatId));
+      if (!selection) return this._answer(query, 'اختر الأصل أولاً', true);
+      selection.expiry = eoExpiry[1];
+      const labels = { '30s':'30 ثانية','1m':'دقيقة','2m':'دقيقتان','3m':'3 دقائق','5m':'5 دقائق' };
+      const assetLabels = { 'ai-index':'AI Index','cricket-index':'Cricket Index','stock':'سهم','eurusd-otc':'EUR / USD (OTC)','usdjpy-otc':'USD / JPY (OTC)','gbpusd-otc':'GBP / USD (OTC)','football-index':'Football Index','luxury-index':'Luxury Index','smarty':'Smarty','usdchf-otc':'USD / CHF (OTC)','silver-otc':'Silver (OTC)','nzdusd-otc':'NZD / USD (OTC)' };
+      await this._answer(query, 'تم اختيار المدة');
+      return this._edit(query, `🔎 <b>طلب التحليل</b>\nالأصل: ${assetLabels[selection.asset]}\nالمدة: ${labels[selection.expiry]}\n\nلا توجد حالياً واجهة بيانات سوق موثقة ومصرح بها من ExpertOption لقراءة هذا الأصل. لم أصدر شراء أو بيع حتى لا أخمّن السعر.`, this.expertOptionAssetsKeyboard());
     }
 
     const speed = /^speed:(slow|medium|fast)$/.exec(data);
@@ -407,7 +472,7 @@ class TelegramBotController {
     if (lower === '/start' || lower === '/help') {
       return this.notifier.sendMessage([
         '🤖 <b>ROZLF AUTO TRADER</b>',
-        'استخدم لوحة الأزرار للتحكم الكامل: التداول، السرعة، الإعدادات، التحليل، والإشعارات.',
+        'ExpertOption للتحليل والإشعارات، وقسم التداول مخصص لـ MT5. اختر القسم من الأزرار أدناه.',
         'التداول الحقيقي معطّل. لا تُنشأ صفقة قبل تأكيد الوسيط لها.',
       ].join('\n'), this.notifier.mainKeyboard());
     }

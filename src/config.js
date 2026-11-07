@@ -45,6 +45,8 @@ const config = {
   MISTRAL_MODEL: env('MISTRAL_MODEL', 'mistral-small-latest'),
   TELEGRAM_BOT_TOKEN: env('TELEGRAM_BOT_TOKEN', ''),
   TELEGRAM_CHAT_ID: env('TELEGRAM_CHAT_ID', ''),
+  // Optional private session cookie. Never expose it to the browser or logs.
+  EXPERTOPTION_SESSION_COOKIE: env('EXPERTOPTION_SESSION_COOKIE', ''),
 
   // Two names are accepted so an older Render service keeps working; both
   // default to false and neither enables live trading on its own.

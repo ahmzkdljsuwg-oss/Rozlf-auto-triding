@@ -232,7 +232,7 @@ class TradingEngine {
       this.account = await this.db.getAccount(accountRow.id);
       this.expertOptionSession = new ExpertOptionSession({
         login,
-        tokenPresent: Boolean(secret),
+        tokenPresent: Boolean(secret || config.EXPERTOPTION_SESSION_COOKIE),
         accountType,
       });
       this.broker = null;
