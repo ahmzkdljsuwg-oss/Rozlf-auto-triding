@@ -145,6 +145,11 @@
     </header>
 
     <main class="dash-main">
+      <div class="dash-heading">
+        <p class="eyebrow" data-i18n="dash.pageEyebrow">ROZLF AUTO TRADER</p>
+        <h1 data-i18n="dash.pageTitle">إعدادات الروبوت</h1>
+      </div>
+
       <!-- balance hero -->
       <section class="hero-card">
         <div class="hero-glow"></div>
@@ -230,7 +235,8 @@
       <!-- open positions -->
       <section class="panel">
         <div class="panel-head">
-          <h2 data-i18n="dash.openPositions">الصفقات المفتوحة</h2>
+          <h2><span data-i18n="dash.openPositions">الصفقات المفتوحة</span>
+            <span class="count-chip" id="open-positions-count">0</span></h2>
         </div>
         <div id="open-positions" class="position-list">
           <div class="empty-state" data-i18n="dash.noOpen">لا توجد صفقات مفتوحة.</div>

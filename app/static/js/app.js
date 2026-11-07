@@ -179,6 +179,7 @@
       ? (s.account_sync_at ? t("dash.syncedAt") + ": " + fmtTime(s.account_sync_at) : t("dash.neverSynced"))
       : (s.account_sync_error || t("dash.accountDisconnected"));
     $("#open-count").textContent = s.open_trades.length;
+    $("#open-positions-count").textContent = s.open_trades.length;
     $("#daily-count").textContent = s.today_trades;
 
     const platformName = s.platform === "mt5" ? "MT5" : "ExpertOption";
@@ -258,6 +259,7 @@
 
   function renderOpenTrades(list) {
     const box = $("#open-positions");
+    $("#open-positions-count").textContent = list.length;
     if (!list.length) {
       box.innerHTML = '<div class="empty-state">' + t("dash.noOpen") + "</div>";
       return;

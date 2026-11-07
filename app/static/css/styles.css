@@ -407,3 +407,76 @@ button.system-item:hover { border-color: #bcd7ec; transform: translateY(-1px); }
 /* skeleton shimmer */
 .skeleton { background: linear-gradient(90deg, #eef4f9 25%, #e3edf5 50%, #eef4f9 75%); background-size: 200% 100%; animation: shimmer 1.4s infinite; border-radius: 8px; }
 @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+
+/* ============ video-inspired iOS refresh ============ */
+:root {
+  --bg: #f5f6f8;
+  --bg-soft: #eef1f5;
+  --surface: #ffffff;
+  --ink: #0a0c10;
+  --muted: #6b7280;
+  --muted-2: #9aa3af;
+  --line: #e5e8ee;
+  --blue: #0a6cf0;
+  --blue-deep: #0052c9;
+  --cyan: #0a84ff;
+  --shadow-sm: 0 1px 2px rgba(16, 24, 40, .04), 0 8px 24px -18px rgba(16, 24, 40, .2);
+  --shadow: 0 24px 60px -34px rgba(16, 24, 40, .38);
+  --radius: 24px;
+  --grad: #0a6cf0;
+}
+body { background: var(--bg); letter-spacing: -.1px; }
+html[dir="rtl"] body { font-family: "Tajawal", "Manrope", sans-serif; }
+
+.dash-heading { margin: 4px 2px 2px; }
+.dash-heading .eyebrow { color: var(--blue); font-size: 10px; letter-spacing: 1.8px; margin-bottom: 4px; }
+.dash-heading h1 { font-size: clamp(26px, 6vw, 34px); margin: 0; letter-spacing: -.8px; line-height: 1.15; }
+.dash-top { background: rgba(245, 246, 248, .9); border-bottom-color: rgba(229,232,238,.7); }
+.brand-mark { background: var(--blue); box-shadow: 0 8px 20px -9px rgba(10,108,240,.7); }
+.chip-btn, .icon-btn, .ghost-btn { border-color: var(--line); background: #fff; }
+.status-pill { background: #fff; }
+
+.hero-card {
+  background: #fff; color: var(--ink);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-sm); border-radius: 26px;
+}
+.hero-glow { background: radial-gradient(circle, rgba(10,108,240,.1), transparent 65%); }
+.hero-label { color: var(--muted); opacity: 1; }
+.mode-chip { background: #eaf2ff; border-color: #cfe2ff; color: var(--blue); }
+.balance-value { color: var(--ink); font-weight: 800; }
+.balance-cur { color: var(--muted); opacity: 1; }
+.account-metrics div { background: #f5f7fa; border-color: #eef1f5; }
+.account-metrics span { color: var(--muted); opacity: 1; }
+.hero-stats span { color: var(--muted); opacity: 1; }
+.hero-stats strong.pos, .hero-stats strong.neg { color: inherit; }
+.hero-stats strong.pos { color: var(--green); }
+.hero-stats strong.neg { color: var(--red); }
+.hero-foot { border-top-color: var(--line); color: var(--muted); opacity: 1; }
+.text-btn.light { color: var(--blue); opacity: 1; }
+
+.control-card, .panel, .risk-strip {
+  border-color: transparent; box-shadow: var(--shadow-sm);
+}
+.control-actions .primary-btn { background: var(--blue); box-shadow: 0 12px 24px -14px rgba(10,108,240,.8); }
+.primary-btn { background: var(--blue); box-shadow: 0 14px 26px -14px rgba(10,108,240,.75); }
+.primary-btn:hover { filter: brightness(1.06); }
+.speed-select { background: #eef1f5; border-color: #e7eaf0; border-radius: 15px; }
+.speed-select button.active { color: var(--ink); box-shadow: 0 1px 4px rgba(16,24,40,.16); }
+.speed-select button.active[data-speed="slow"] { color: #0f766e; }
+.speed-select button.active[data-speed="fast"] { color: #b45309; }
+.danger-btn { background: #fff1f2; border-color: #fecdd3; }
+
+.risk-strip { background: #fff; }
+.panel { background: #fff; }
+.panel-head h2 { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 800; }
+.count-chip { display: inline-grid; place-items: center; min-width: 22px; height: 22px; padding: 0 7px;
+  border-radius: 99px; background: #eef1f5; color: var(--muted); font-size: 10.5px; font-weight: 800; }
+.opp-row, .position-card, .history-row { background: #f7f8fa; border-color: transparent; border-radius: 16px; }
+.opp-row:hover { border-color: #d7e6fb; transform: none; }
+.position-top strong, .history-top strong { font-size: 14px; }
+.tag.OPEN { background: #eaf2ff; color: var(--blue); }
+.system-item { background: #f7f8fa; border-color: transparent; border-radius: 16px; }
+button.system-item:hover { border-color: #d7e6fb; }
+.modal { border-radius: 26px; }
+.empty-state { color: var(--muted-2); }
