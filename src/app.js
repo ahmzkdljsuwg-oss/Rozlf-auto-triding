@@ -6,6 +6,7 @@ const express = require('express');
 const config = require('./config');
 const { dashboardTokenOk } = require('./security');
 const { RISK_KEYS } = require('./engine');
+const { INTEGRATION_STATUS } = require('./expertoption-session');
 
 function fail(res, status, detail) {
   return res.status(status).json({ detail });
@@ -126,6 +127,10 @@ function createApp({ engine }) {
   app.get('/api/expertoption/session', async (req, res) => {
     if (!engine.expertOptionSession) return fail(res, 409, 'No ExpertOption session is attached');
     res.json(engine.expertOptionSession.status());
+  });
+
+  app.get('/api/expertoption/integration', (req, res) => {
+    res.json(INTEGRATION_STATUS);
   });
 
   app.post('/api/expertoption/verify', async (req, res) => {

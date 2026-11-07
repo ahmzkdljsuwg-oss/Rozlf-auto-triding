@@ -167,6 +167,9 @@ Render لا يستطيع تشغيل طرفية MT5 لأن حزمة `MetaTrader5`
 يبدأ مع `/api/start` عندما يكون الوضع تحليلاً فقط. `POST /api/scanner/trade` يُرجع 403 دائماً
 لأن ExpertOption لا يوفّر تكاملاً رسمياً للتنفيذ.
 
+> التقرير التقني الكامل، مع نص البند 6.2 من شروط ExpertOption والدليل على غياب API عام:
+> [`docs/EXPERT-OPTION-INTEGRATION.md`](docs/EXPERT-OPTION-INTEGRATION.md)
+
 - الأسعار من مصدر سوق عام (Yahoo Finance) وليست أسعار ExpertOption نفسها؛ لا تُختلق أي أسعار.
 - أسواق OTC وSmarty خاصة بالحساب ولا توجد لها واجهة عامة مصرّح بها، لذلك تظهر بعدّاد صفر
   ولا تُخترع لها رموز.

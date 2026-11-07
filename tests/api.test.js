@@ -107,6 +107,14 @@ test('validation, real-account block and analysis-only ExpertOption', async (t) 
   const verify = await call(base, '/api/expertoption/verify', { method: 'POST' });
   assert.equal(verify.status, 409);
   assert.equal(verify.body.verified, false);
+
+  const integration = await call(base, '/api/expertoption/integration');
+  assert.equal(integration.status, 200);
+  assert.equal(integration.body.official_api_available, false);
+  assert.equal(integration.body.execution_supported, false);
+  assert.equal(integration.body.policy_allows_bots, false);
+  assert.equal(integration.body.policy_clause, '6.2');
+  assert.match(integration.body.policy_url, /expertoption\.com/);
   assert.equal(verify.body.ok, false);
 });
 

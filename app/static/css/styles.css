@@ -513,6 +513,8 @@ button.system-item:hover { border-color: #d7e6fb; }
 .source-status div { display: flex; flex-direction: column; gap: 2px; }
 .source-status span { color: #8a6400; font-size: 9.5px; font-weight: 800; }
 .source-status strong { color: #5c4300; font-size: 11.5px; font-weight: 800; }
+.source-status strong.blocked { color: #9b2c2c; }
+.source-status div:nth-child(3) { grid-column: 1 / -1; }
 .source-status p { grid-column: 1 / -1; margin: 0; color: #7a5300; font-size: 10px; line-height: 1.65; }
 .source-status.ok { background: #e9faf3; border-color: #b7ead9; }
 .scanner-summary { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 10px; }
