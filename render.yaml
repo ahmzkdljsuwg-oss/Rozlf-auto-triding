@@ -8,8 +8,6 @@ services:
     healthCheckPath: /api/health
     autoDeploy: true
     envVars:
-      - key: PYTHON_VERSION
-        value: 3.13.7
       - key: APP_SECRET_KEY
         generateValue: true
       - key: DASHBOARD_TOKEN

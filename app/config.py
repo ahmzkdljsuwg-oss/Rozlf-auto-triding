@@ -2,7 +2,14 @@ import os
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-DATA_DIR = Path(os.getenv("DATA_DIR", BASE_DIR / "data"))
+
+
+def _env(name: str, default: str) -> str:
+    value = os.getenv(name)
+    return value if value else default
+
+
+DATA_DIR = Path(_env("DATA_DIR", str(BASE_DIR / "data")))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 CHART_DIR = DATA_DIR / "charts"
 CHART_DIR.mkdir(parents=True, exist_ok=True)
@@ -11,7 +18,7 @@ APP_NAME = "ROZLF AUTO TRADER"
 APP_VERSION = "1.0.0"
 
 SECRET_KEY = os.getenv("APP_SECRET_KEY", "")
-DATABASE_PATH = Path(os.getenv("DATABASE_PATH", DATA_DIR / "rozzlf.db"))
+DATABASE_PATH = Path(_env("DATABASE_PATH", str(DATA_DIR / "rozzlf.db")))
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
