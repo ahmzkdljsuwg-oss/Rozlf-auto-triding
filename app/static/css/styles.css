@@ -1,22 +1,22 @@
 :root {
-  --bg: #f2f8fb;
-  --bg-soft: #eaf4f9;
+  --bg: #f5f8fc;
+  --bg-soft: #eef5fb;
   --surface: #ffffff;
   --ink: #0e1b2c;
   --muted: #64748b;
   --muted-2: #94a3b8;
-  --line: #e2ecf4;
-  --blue: #2d75d7;
-  --blue-deep: #1b56a8;
-  --cyan: #3ca4c9;
-  --green: #16a36a;
-  --red: #e14b5a;
+  --line: #e3edf7;
+  --blue: #1268f0;
+  --blue-deep: #0b4fd1;
+  --cyan: #0e9bb5;
+  --green: #00a080;
+  --red: #e03050;
   --amber: #d97706;
   --shadow-sm: 0 2px 10px -4px rgba(24, 58, 99, .12);
   --shadow: 0 24px 60px -32px rgba(23, 64, 112, .38);
   --radius: 22px;
   --radius-sm: 14px;
-  --grad: linear-gradient(135deg, #2d75d7 0%, #3ca4c9 100%);
+  --grad: linear-gradient(135deg, #0b4fd1 0%, #1268f0 55%, #0e9bb5 100%);
   --font: "Manrope", "Tajawal", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
