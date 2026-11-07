@@ -14,6 +14,7 @@ const { TelegramNotifier } = require('./telegram');
 const { renderTradeChart, renderResultChart } = require('./charts');
 const { utcnow } = require('./db');
 const { getSpeedPreset, isSpeedMode, DEFAULT_SPEED } = require('./speed');
+const settingsUtil = require('./settings');
 
 const RISK_KEYS = Object.keys(DEFAULTS);
 const ALERT_COOLDOWN_MS = 30 * 60 * 1000;
@@ -34,6 +35,12 @@ class TradingEngine {
     this.running = false;
     this.emergency = false;
     this.speed = DEFAULT_SPEED;
+    this.tradingMode = 'demo';
+    this.symbols = [...config.SYMBOLS];
+    this.timeframe = 'M5';
+    this.notifications = { ...settingsUtil.NOTIFICATION_DEFAULTS };
+    this.analysisOnly = false;
+    this._lastDailyReport = null;
     this._lastOpportunityNotice = new Map();
     this.lastScanAt = null;
     this.lastError = null;
@@ -78,7 +85,95 @@ class TradingEngine {
     const speed = await this.db.getSetting('trading.speed', null);
     this.speed = isSpeedMode(speed) ? speed : DEFAULT_SPEED;
     if (speed === null) await this.db.setSetting('trading.speed', this.speed);
+
+    const storedSymbols = await this.db.getSetting('trading.symbols', null);
+    try {
+      this.symbols = storedSymbols === null ? [...config.SYMBOLS] : settingsUtil.normalizeSymbols(storedSymbols);
+    } catch {
+      this.symbols = [...config.SYMBOLS];
+    }
+    if (storedSymbols === null) await this.db.setSetting('trading.symbols', this.symbols);
+
+    const storedTimeframe = await this.db.getSetting('trading.timeframe', null);
+    try {
+      this.timeframe = storedTimeframe === null ? config.TIMEFRAMES[0] : settingsUtil.normalizeTimeframe(storedTimeframe);
+    } catch {
+      this.timeframe = config.TIMEFRAMES[0];
+    }
+    if (storedTimeframe === null) await this.db.setSetting('trading.timeframe', this.timeframe);
+
+    const storedMode = await this.db.getSetting('trading.mode', null);
+    try {
+      this.tradingMode = storedMode === null ? 'demo' : settingsUtil.normalizeMode(storedMode);
+    } catch {
+      this.tradingMode = 'demo';
+    }
+    if (storedMode === null) await this.db.setSetting('trading.mode', this.tradingMode);
+
+    const storedNotifications = await this.db.getSetting('notifications.settings', null);
+    this.notifications = settingsUtil.normalizeNotifications(storedNotifications || {});
+    if (storedNotifications === null) {
+      await this.db.setSetting('notifications.settings', this.notifications);
+    }
     return stored;
+  }
+
+  async getSettings() {
+    const risk = {};
+    for (const key of RISK_KEYS) risk[key] = this.risk.get(key);
+    return {
+      ...risk,
+      symbols: [...this.symbols],
+      timeframe: this.timeframe,
+      mode: this.tradingMode,
+      notifications: { ...this.notifications },
+      available_symbols: [...config.SYMBOLS],
+      available_timeframes: [...config.TIMEFRAMES],
+      modes: settingsUtil.MODES,
+      live_enabled: config.REAL_TRADING_APPROVED,
+      analysis_only: this.analysisOnly,
+    };
+  }
+
+  async updateSettings(values, { source = 'site' } = {}) {
+    const current = await this.getSettings();
+    const clean = settingsUtil.validateValues(values || {}, current);
+    for (const key of RISK_KEYS) {
+      if (clean[key] !== undefined) await this.db.setSetting(`risk.${key}`, clean[key]);
+    }
+    if (clean.symbols !== undefined) {
+      this.symbols = clean.symbols;
+      await this.db.setSetting('trading.symbols', this.symbols);
+    }
+    if (clean.timeframe !== undefined) {
+      this.timeframe = clean.timeframe;
+      await this.db.setSetting('trading.timeframe', this.timeframe);
+    }
+    if (clean.mode !== undefined) {
+      if (clean.mode === 'live' && !config.REAL_TRADING_APPROVED) {
+        throw new Error('Real trading is disabled until explicitly approved');
+      }
+      this.tradingMode = clean.mode;
+      await this.db.setSetting('trading.mode', this.tradingMode);
+    }
+    if (clean.notifications !== undefined) {
+      this.notifications = clean.notifications;
+      await this.db.setSetting('notifications.settings', this.notifications);
+    }
+    await this.ensureSettings();
+    await this.db.addLog('info', 'settings', 'Bot settings updated', { source });
+    return this.getSettings();
+  }
+
+  async setTradingMode(mode, { source = 'site' } = {}) {
+    const clean = settingsUtil.normalizeMode(mode);
+    if (clean === 'live' && !config.REAL_TRADING_APPROVED) {
+      throw new Error('Real trading is disabled until explicitly approved');
+    }
+    this.tradingMode = clean;
+    await this.db.setSetting('trading.mode', clean);
+    await this.db.addLog('info', 'engine', `Trading mode set to ${clean}`, { source });
+    return this.getSettings();
   }
 
   get speedPreset() {
@@ -114,16 +209,46 @@ class TradingEngine {
   async attachAccount({ platform, accountType, login, password, server = '' }) {
     if (!['mt5', 'expertoption'].includes(platform)) throw new Error('Unsupported platform');
     if (!['demo', 'real'].includes(accountType)) throw new Error('Unsupported account type');
-    if (platform === 'expertoption') {
-      throw new Error(
-        'ExpertOption has no approved public trading API. This platform is analysis and alerts only, so no login is performed.',
-      );
-    }
     if (accountType === 'real' && !config.REAL_TRADING_APPROVED) {
       throw new Error('Real trading is disabled until explicitly approved');
     }
     if (this.broker) {
       try { await this.broker.disconnect(); } catch { /* ignore */ }
+    }
+
+    if (platform === 'expertoption') {
+      // ExpertOption has no approved public trading API. This session is kept
+      // for real market analysis and alerts only; no order is ever executed.
+      const accountRow = await this.db.upsertAccount(
+        platform, accountType, login, server || 'ExpertOption',
+        require('./security').encryptSecret(password || ''), 0,
+      );
+      await this.db.setAccountStatus(accountRow.id, 'analysis');
+      this.account = await this.db.getAccount(accountRow.id);
+      this.broker = null;
+      this.executionMode = 'analysis_only';
+      this.platform = platform;
+      this.accountType = accountType;
+      this.analysisOnly = true;
+      this.tradingMode = 'analysis';
+      await this.db.setSetting('trading.mode', 'analysis');
+      this.accountBalance = 0;
+      this.accountEquity = 0;
+      this.marginFree = 0;
+      this.marginUsed = 0;
+      this.marginLevel = null;
+      this.accountCurrency = 'USD';
+      this.accountSynced = false;
+      this.accountSyncAt = null;
+      this.accountSyncError = 'ExpertOption: analysis-only platform; no account balance or execution is available.';
+      this.emergency = false;
+      this.lastError = null;
+      this.opportunities = [];
+      this._lastTradeAt.clear();
+      await this.db.addLog('info', 'broker', `ExpertOption analysis session for ${login}`, {
+        mode: 'analysis_only',
+      });
+      return this.status();
     }
 
     let broker;
@@ -174,6 +299,7 @@ class TradingEngine {
     this.executionMode = mode;
     this.platform = platform;
     this.accountType = accountType;
+    this.analysisOnly = false;
     this.accountBalance = Number(info.balance);
     this.accountEquity = Number(info.equity);
     this.marginFree = Number(info.margin_free || 0);
@@ -212,6 +338,7 @@ class TradingEngine {
     this.account = null;
     this.running = false;
     this.executionMode = 'none';
+    this.analysisOnly = false;
     this.accountBalance = 0;
     this.accountEquity = 0;
     this.marginFree = 0;
@@ -229,21 +356,26 @@ class TradingEngine {
   }
 
   async start() {
-    if (!this.account || !this.broker) throw new Error('Connect a demo account first');
+    if (!this.account) throw new Error('Connect a demo account first');
     if (this.emergency) throw new Error('Emergency stop is active; reconnect the account to resume');
-    await this.syncAccount();
-    if (!this.accountSynced) throw new Error('Account sync failed; trading cannot start');
+    if (!this.analysisOnly) {
+      if (!this.broker) throw new Error('Connect a demo account first');
+      await this.syncAccount();
+      if (!this.accountSynced) throw new Error('Account sync failed; trading cannot start');
+    }
     this.running = true;
     this._started = true;
     await this.db.addLog('info', 'engine', 'Bot started');
-    if (this.telegram.enabled) {
+    if (this.telegram.enabled && this.notifications.bot_started) {
       const sent = await this.telegram.notifyBotStarted({
         accountType: this.accountType,
         login: this.account ? this.account.login : '',
         server: this.account ? this.account.server : '',
         speed: this.speed,
         executionMode: this.executionMode,
-        connected: this.accountFresh(),
+        connected: this.analysisOnly ? true : this.accountFresh(),
+        platform: this.platform,
+        tradingMode: this.tradingMode,
       });
       if (!sent.ok) await this.db.addLog('warn', 'telegram', `Start notification failed: ${sent.error}`);
     }
@@ -298,10 +430,13 @@ class TradingEngine {
     if (this._busy || !this.running) return;
     this._busy = true;
     try {
-      await this.syncAccount();
-      await this.processOpenTrades();
+      if (!this.analysisOnly) {
+        await this.syncAccount();
+        await this.processOpenTrades();
+      }
       await this.scanAndTrade();
-      await this.syncAccount();
+      if (!this.analysisOnly) await this.syncAccount();
+      await this.maybeDailyReport();
     } finally {
       this._busy = false;
     }
@@ -313,7 +448,7 @@ class TradingEngine {
   }
 
   async syncAccount() {
-    if (!this.broker || !this.account) return;
+    if (!this.broker || !this.account || this.analysisOnly) return;
     try {
       const info = await this.broker.accountInfo();
       const balance = Number(info.balance);
@@ -385,7 +520,8 @@ class TradingEngine {
       account_data_fresh: this.accountFresh(),
       account_sync_at: this.accountSyncAt,
       account_sync_error: this.accountSyncError,
-      account_status: this.accountSynced ? 'connected' : 'disconnected',
+      account_status: this.analysisOnly ? 'analysis' : (this.accountSynced ? 'connected' : 'disconnected'),
+      analysis_only: this.analysisOnly,
       margin_free: this.marginFree,
       margin_used: this.marginUsed,
       margin_level: this.marginLevel,
@@ -416,6 +552,11 @@ class TradingEngine {
       telegram_enabled: this.telegram.enabled,
       today_pnl: todayPnl,
       today_trades: todayTrades.length,
+      trading_mode: this.tradingMode,
+      timeframe: this.timeframe,
+      symbols: [...this.symbols],
+      notifications: { ...this.notifications },
+      notifications_enabled: this.telegram.enabled,
     };
   }
 
@@ -544,8 +685,9 @@ class TradingEngine {
       await this.db.addLog('info', 'trade', `MT5 closed ${trade.symbol} ${resultTag} ${pnl}`, {
         ticket: trade.broker_order_id, exit: closed.close_price,
       });
-      if (this.telegram.enabled) {
-        const sent = await this.telegram.notifyClose({ ...closedTrade, account_type: this.accountType }, chartPath);
+      if (this.telegram.enabled && this.notifications.trade_close) {
+        const seenChart = this.notifications.charts ? chartPath : '';
+        const sent = await this.telegram.notifyClose({ ...closedTrade, account_type: this.accountType }, seenChart);
         if (!sent.ok) await this.db.addLog('warn', 'telegram', `Close notification failed: ${sent.error}`);
       }
       this.opportunities = this.opportunities.filter((o) => o.symbol !== trade.symbol);
@@ -619,8 +761,9 @@ class TradingEngine {
       await this.db.addLog('info', 'trade', `Closed ${trade.symbol} ${trade.side} ${resultTag} ${pnl}`, {
         entry: trade.entry_price, exit: fillPrice,
       });
-      if (this.telegram.enabled) {
-        const sent = await this.telegram.notifyClose({ ...closed, account_type: this.accountType }, chartPath);
+      if (this.telegram.enabled && this.notifications.trade_close) {
+        const seenChart = this.notifications.charts ? chartPath : '';
+        const sent = await this.telegram.notifyClose({ ...closed, account_type: this.accountType }, seenChart);
         if (!sent.ok) await this.db.addLog('warn', 'telegram', `Close notification failed: ${sent.error}`);
       }
       this.opportunities = this.opportunities.filter((o) => o.symbol !== trade.symbol);
@@ -646,26 +789,44 @@ class TradingEngine {
     this.opportunities = this.opportunities.slice(0, 12);
   }
 
-  async scanAndTrade() {
-    if (!this.account || !this.broker) return;
-    if (!this.accountFresh()) {
-      this.lastError = 'Account sync is stale; no new trades are allowed';
-      await this.db.addLog('warn', 'risk', this.lastError);
-      return;
+  applyConfiguredStops(signal) {
+    const stopPips = Number(this.risk.get('stop_loss_pips'));
+    const targetPips = Number(this.risk.get('take_profit_pips'));
+    if (!(stopPips > 0) && !(targetPips > 0)) return signal;
+    const pip = pipSize(signal.symbol);
+    const digits = pip >= 0.1 ? 2 : pip >= 0.01 ? 3 : 5;
+    const entry = Number(signal.entry);
+    if (stopPips > 0) {
+      const raw = signal.side === 'BUY' ? entry - stopPips * pip : entry + stopPips * pip;
+      signal.stop_loss = Number(raw.toFixed(digits));
     }
+    if (targetPips > 0) {
+      const raw = signal.side === 'BUY' ? entry + targetPips * pip : entry - targetPips * pip;
+      signal.take_profit = Number(raw.toFixed(digits));
+    }
+    return signal;
+  }
+
+  async scanAndTrade({ execute = true } = {}) {
+    if (!this.account && !this.analysisOnly) return;
+    const canExecute = Boolean(
+      execute && this.account && this.broker && !this.analysisOnly && this.running
+      && !this.emergency && this.tradingMode === 'demo' && this.accountFresh(),
+    );
     const candidates = [];
     const errors = [];
     let fetched = 0;
     this.opportunities = [];
 
-    for (const symbol of config.SYMBOLS) {
+    for (const symbol of this.symbols) {
       try {
         const snaps = await this.loadSnapshots(symbol);
         fetched += 1;
-        const signal = buildSignal(symbol, 'M5', snaps, {
+        const signal = buildSignal(symbol, this.timeframe, snaps, {
           minConfidence: this.speedPreset.min_confidence,
           requireH4: this.speedPreset.require_h4,
         });
+        this.applyConfiguredStops(signal);
         this.publishOpportunity(signal);
         if (signal.side === 'BUY' || signal.side === 'SELL') {
           candidates.push({ signal, snaps });
@@ -685,7 +846,7 @@ class TradingEngine {
       ? `No fresh market data. ${errors.slice(0, 2).join('; ')}`.slice(0, 300)
       : null;
 
-    if (!candidates.length || !this.running || this.emergency) return;
+    if (!candidates.length || !canExecute) return;
     candidates.sort((a, b) => b.signal.confidence - a.signal.confidence);
 
     const open = await this.db.openTrades(this.account.id);
@@ -744,7 +905,7 @@ class TradingEngine {
   }
 
   async notifyOpportunity(signal, spreadPips) {
-    if (!this.telegram.enabled) return;
+    if (!this.telegram.enabled || !this.notifications.opportunity) return;
     const fingerprint = `${signal.side}|${signal.entry}|${signal.stop_loss}|${signal.take_profit}|${signal.timeframe}`;
     const previous = this._lastOpportunityNotice.get(signal.symbol);
     if (previous && previous.fingerprint === fingerprint && Date.now() - previous.at < 15 * 60 * 1000) {
@@ -766,7 +927,7 @@ class TradingEngine {
   }
 
   async sendAnalysisAlert(signal, reason, spreadPips) {
-    if (!this.telegram.enabled) return;
+    if (!this.telegram.enabled || !this.notifications.opportunity) return;
     const last = this._alerted.get(signal.symbol) || 0;
     if (Date.now() - last < ALERT_COOLDOWN_MS) return;
     this._alerted.set(signal.symbol, Date.now());
@@ -782,8 +943,138 @@ class TradingEngine {
     if (!sent.ok) await this.db.addLog('warn', 'telegram', `Analysis alert failed: ${sent.error}`);
   }
 
+  async analyzeNow() {
+    if (this._busy) throw new Error('A market scan is already running');
+    if (!this.account && !this.analysisOnly) throw new Error('Connect an account or analysis session first');
+    this._busy = true;
+    try {
+      await this.scanAndTrade({ execute: false });
+    } finally {
+      this._busy = false;
+    }
+    return { scan_count: this.scanCount, opportunities: this.opportunities, last_scan_at: this.lastScanAt };
+  }
+
+  async stats() {
+    if (!this.account) {
+      return { total: 0, wins: 0, losses: 0, total_pnl: 0, avg_pnl: 0, win_rate: 0, open: 0, today: 0, today_pnl: 0 };
+    }
+    const [aggregate, openTrades, todayTrades, closedToday] = await Promise.all([
+      this.db.tradeStats(this.account.id),
+      this.db.openTrades(this.account.id),
+      this.db.tradesToday(this.account.id),
+      this.db.closedToday(this.account.id),
+    ]);
+    const todayPnl = Math.round(closedToday.reduce((sum, t) => sum + Number(t.pnl || 0), 0) * 100) / 100;
+    return { ...aggregate, open: openTrades.length, today: todayTrades.length, today_pnl: todayPnl };
+  }
+
+  async latestOpportunityChart() {
+    const opportunity = this.opportunities.find((o) => o.side === 'BUY' || o.side === 'SELL');
+    if (!opportunity) throw new Error('No active BUY or SELL opportunity to chart');
+    const snap = await this.market.get(opportunity.symbol, opportunity.timeframe, 120);
+    const chartPath = await renderTradeChart({
+      symbol: opportunity.symbol,
+      timeframe: opportunity.timeframe,
+      side: opportunity.side,
+      candles: snap.candles.slice(-90),
+      entry: opportunity.entry,
+      stopLoss: opportunity.stop_loss,
+      takeProfit: opportunity.take_profit,
+      outputDir: this.chartDir,
+    });
+    return {
+      path: chartPath,
+      caption: [
+        `<b>${opportunity.symbol} ${opportunity.timeframe} — ${opportunity.side}</b>`,
+        `Entry: <code>${opportunity.entry}</code>`,
+        `SL: <code>${opportunity.stop_loss}</code> | TP: <code>${opportunity.take_profit}</code>`,
+        `Confidence: ${Math.round(Number(opportunity.confidence || 0) * 100)}%`,
+        `Reason: ${opportunity.reason || opportunity.reason_ar || ''}`,
+      ].join('\n'),
+    };
+  }
+
+  async closeAllTrades({ confirm = false } = {}) {
+    if (!confirm) throw new Error('Closing all trades requires explicit confirmation');
+    if (!this.account || !this.broker || this.analysisOnly) {
+      throw new Error('No execution account is connected');
+    }
+    const trades = await this.db.openTrades(this.account.id);
+    if (!trades.length) return { closed: 0, failed: 0, results: [] };
+    const results = [];
+    for (const trade of trades) {
+      try {
+        const before = Number(this.accountBalance || 0);
+        let reference = null;
+        try { reference = await this.market.latestPrice(trade.symbol); } catch { /* broker price is used */ }
+        const result = await this.broker.closeOrder(
+          trade.broker_order_id, trade.symbol, trade.side, trade.lot, reference,
+        );
+        let fillPrice = Number(result.fill_price || reference || trade.entry_price);
+        let pnl = 0;
+        if (this.broker.supportsPositions) {
+          const history = await this.broker.history(trade.broker_order_id);
+          if (!history || !(history.close_price > 0)) {
+            throw new Error('MT5 did not confirm the closed position in history');
+          }
+          fillPrice = Number(history.close_price);
+          pnl = Number(history.pnl || 0);
+        } else {
+          pnl = this.broker.realizedPnl(trade.symbol, trade.side, trade.entry_price, fillPrice, trade.lot);
+          this.broker.applyPnl(pnl);
+        }
+        const resultTag = pnl >= 0 ? 'WIN' : 'LOSS';
+        const closed = await this.db.closeTrade(trade.id, fillPrice, pnl, resultTag);
+        this.accountBalance = Math.round((before + pnl) * 100) / 100;
+        this.accountEquity = this.accountBalance;
+        await this.db.addLog('info', 'trade', `Closed by user ${trade.symbol} ${trade.side} ${resultTag} ${pnl}`);
+        if (this.telegram.enabled && this.notifications.trade_close) {
+          await this.telegram.notifyClose({ ...closed, account_type: this.accountType }, '');
+        }
+        results.push({ id: trade.id, symbol: trade.symbol, result: resultTag, pnl });
+      } catch (err) {
+        await this.db.addLog('error', 'trade', `Manual close failed ${trade.symbol}: ${err.message}`);
+        results.push({ id: trade.id, symbol: trade.symbol, result: 'FAILED', error: err.message });
+      }
+    }
+    if (this.broker.supportsPositions) await this.syncBrokerTrades();
+    return {
+      closed: results.filter((r) => r.result !== 'FAILED').length,
+      failed: results.filter((r) => r.result === 'FAILED').length,
+      results,
+    };
+  }
+
+  async sendDailyReport() {
+    const stats = await this.stats();
+    if (this.telegram.enabled) {
+      await this.telegram.notifyDailyReport({
+        ...stats,
+        balance: this.accountBalance,
+        currency: this.accountCurrency,
+        mode: this.tradingMode,
+        speed: this.speed,
+      });
+    }
+    return stats;
+  }
+
+  async maybeDailyReport() {
+    if (!this.telegram.enabled || !this.notifications.daily_report) return;
+    const today = utcnow().slice(0, 10);
+    const last = await this.db.getSetting('notifications.last_daily_report', null);
+    if (last === today) return;
+    await this.db.setSetting('notifications.last_daily_report', today);
+    await this.sendDailyReport();
+  }
+
   async executeTrade({ signal, snaps, decision, spreadPips }) {
-    if (!this.account || !this.broker) return null;
+    if (!this.account || !this.broker || this.analysisOnly) return null;
+    if (this.tradingMode !== 'demo') {
+      await this.db.addLog('warn', 'trade', `Execution blocked in ${this.tradingMode} mode`);
+      return null;
+    }
     if (!this.accountFresh()) {
       await this.db.addLog('warn', 'trade', 'Order blocked: account snapshot is stale');
       return null;
@@ -878,8 +1169,9 @@ class TradingEngine {
       await this.syncAccount();
       await this.syncBrokerTrades();
     }
-    if (this.telegram.enabled) {
-      const sent = await this.telegram.notifyOpen({ ...trade, account_type: this.accountType }, chartPath);
+    if (this.telegram.enabled && this.notifications.trade_open) {
+      const seenChart = this.notifications.charts ? chartPath : '';
+      const sent = await this.telegram.notifyOpen({ ...trade, account_type: this.accountType }, seenChart);
       if (!sent.ok) await this.db.addLog('warn', 'telegram', `Open notification failed: ${sent.error}`);
     }
     return trade;

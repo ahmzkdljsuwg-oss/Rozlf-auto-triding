@@ -65,7 +65,7 @@ test('health, config and auth surface behave', async (t) => {
   assert.equal(config.body.expertoption_execution, false);
 });
 
-test('validation, real-account block and unsupported platform', async (t) => {
+test('validation, real-account block and analysis-only ExpertOption', async (t) => {
   const { base } = await boot(t);
   const invalid = await call(base, '/api/connect', { method: 'POST', body: { platform: 'x' } });
   assert.equal(invalid.status, 422);
@@ -80,8 +80,9 @@ test('validation, real-account block and unsupported platform', async (t) => {
     method: 'POST',
     body: { platform: 'expertoption', account_type: 'demo', login: '12345', password: 'secret' },
   });
-  assert.equal(eo.status, 403);
-  assert.match(eo.body.detail, /analysis/i);
+  assert.equal(eo.status, 200);
+  assert.equal(eo.body.account_status, 'analysis');
+  assert.equal(eo.body.analysis_only, true);
 });
 
 test('demo connect, status, market test, risk and bot controls', async (t) => {

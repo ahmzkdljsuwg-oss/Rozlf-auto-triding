@@ -133,9 +133,63 @@ function createApp({ engine }) {
     res.json({ trades: trades.map(safeChartName) });
   });
 
+  app.get('/api/settings', async (req, res) => {
+    res.json(await engine.getSettings());
+  });
+
+  app.post('/api/settings', async (req, res) => {
+    try {
+      res.json(await engine.updateSettings(req.body || {}, { source: 'site' }));
+    } catch (err) {
+      return fail(res, 422, String(err.message));
+    }
+  });
+
+  app.post('/api/mode', async (req, res) => {
+    try {
+      res.json(await engine.setTradingMode((req.body || {}).mode, { source: 'site' }));
+    } catch (err) {
+      return fail(res, 422, String(err.message));
+    }
+  });
+
+  app.get('/api/stats', async (req, res) => {
+    res.json(await engine.stats());
+  });
+
+  app.post('/api/analysis/run', async (req, res) => {
+    try {
+      res.json(await engine.analyzeNow());
+    } catch (err) {
+      return fail(res, 409, String(err.message));
+    }
+  });
+
+  app.get('/api/analysis/chart', async (req, res) => {
+    try {
+      const chart = await engine.latestOpportunityChart();
+      res.json({ url: `/api/charts/${path.basename(chart.path)}`, caption: chart.caption });
+    } catch (err) {
+      return fail(res, 404, String(err.message));
+    }
+  });
+
+  app.post('/api/trades/close-all', async (req, res) => {
+    try {
+      res.json(await engine.closeAllTrades({ confirm: (req.body || {}).confirm === true }));
+    } catch (err) {
+      return fail(res, 422, String(err.message));
+    }
+  });
+
   app.get('/api/logs', async (req, res) => {
     const limit = Math.min(500, Math.max(1, Number(req.query.limit) || 100));
-    const logs = await engine.db.recentLogs(limit);
+    const category = typeof req.query.category === 'string' ? req.query.category : '';
+    const level = typeof req.query.level === 'string' ? req.query.level : '';
+    let logs = await engine.db.recentLogs(Math.min(500, limit * 3));
+    if (category) logs = logs.filter((row) => row.category === category);
+    if (level) logs = logs.filter((row) => row.level === level);
+    logs = logs.slice(0, limit);
     res.json({
       logs: logs.map((row) => {
         let meta = row.meta;
@@ -183,31 +237,21 @@ function createApp({ engine }) {
   });
 
   app.get('/api/risk', async (req, res) => {
-    res.json(await engine.ensureSettings());
+    await engine.ensureSettings();
+    const risk = {};
+    for (const key of RISK_KEYS) risk[key] = engine.risk.get(key);
+    res.json(risk);
   });
 
   app.post('/api/risk', async (req, res) => {
-    const body = req.body || {};
-    const bounds = {
-      risk_percent: [0.1, 2.0],
-      daily_loss_limit_percent: [0.5, 10.0],
-      max_open_trades: [1, 10],
-      max_daily_trades: [1, 50],
-      min_confidence: [0.5, 0.95],
-      max_spread_pips: [0.5, 10.0],
-    };
-    const values = {};
-    for (const key of RISK_KEYS) {
-      if (body[key] === undefined) continue;
-      const value = Number(body[key]);
-      const [lo, hi] = bounds[key];
-      if (!Number.isFinite(value) || value < lo || value > hi) {
-        return fail(res, 422, `${key} must be between ${lo} and ${hi}`);
-      }
-      values[key] = value;
+    try {
+      await engine.updateSettings(req.body || {}, { source: 'site' });
+      const risk = {};
+      for (const key of RISK_KEYS) risk[key] = engine.risk.get(key);
+      res.json(risk);
+    } catch (err) {
+      return fail(res, 422, String(err.message));
     }
-    if (!Object.keys(values).length) return fail(res, 422, 'No risk settings supplied');
-    res.json(await engine.updateRiskSettings(values));
   });
 
   app.post('/api/market/test', async (req, res) => {

@@ -78,22 +78,36 @@ class TelegramNotifier {
     );
   }
 
-  async notifyBotStarted({ accountType, login, server, speed, executionMode, connected }) {
+  mainKeyboard() {
+    return {
+      inline_keyboard: [
+        [{ text: '▶️ التداول', callback_data: 'menu:trade' }, { text: '📊 التحليل', callback_data: 'menu:analysis' }],
+        [{ text: '⚙️ إعدادات الصفقات', callback_data: 'menu:settings' }, { text: '🔔 الإشعارات', callback_data: 'menu:notify' }],
+        [{ text: '⚡ السرعة', callback_data: 'menu:speed' }, { text: '📈 الحالة', callback_data: 'action:status' }],
+      ],
+    };
+  }
+
+  async notifyBotStarted({ accountType, login, server, speed, executionMode, connected, platform, tradingMode }) {
     const labels = { slow: '🐢 بطيء', medium: '⚖️ متوسط', fast: '⚡ سريع' };
-    const modeNote = executionMode === 'simulated'
-      ? '\n⚠️ تنفيذ محاكى — ليست صفقات MT5 حقيقية'
-      : '\nالتنفيذ: MT5 عبر الجسر';
+    const platformLabel = platform === 'expertoption' ? 'ExpertOption' : 'MT5';
+    const modeLabel = executionMode === 'analysis_only'
+      ? 'تحليل وتنبيهات فقط — لا تنفيذ'
+      : executionMode === 'simulated'
+        ? 'تنفيذ محاكى (DEMO) — ليست صفقات MT5 حقيقية'
+        : 'تنفيذ MT5 عبر الجسر';
     const text = [
       '🟢 <b>تم بدء التحليل بنجاح</b>',
       `• حالة الاتصال: ${connected ? 'متصل' : 'غير متصل'}`,
-      `• الحساب: ${escapeHtml(accountType === 'demo' ? 'MT5 Demo' : 'MT5')} ${escapeHtml(login || '')}${server ? ` — ${escapeHtml(server)}` : ''}`,
+      `• الحساب: ${platformLabel} ${escapeHtml(accountType === 'demo' ? 'Demo' : accountType === 'real' ? 'Real' : 'Demo')} ${escapeHtml(login || '')}${server ? ` — ${escapeHtml(server)}` : ''}`,
       `• سرعة التداول: ${labels[speed] || escapeHtml(speed)}`,
-      '• حالة السوق: جاري المراقبة',
-      modeNote.trim(),
+      `• وضع التشغيل: ${escapeHtml(tradingMode || 'demo')}`,
+      `• حالة السوق: ${connected ? 'جاري المراقبة' : 'بانتظار الاتصال'}`,
+      `• ${modeLabel}`,
       '',
-      'يمكنك تغيير السرعة في أي وقت من الأزرار أدناه.',
-    ].filter(Boolean).join('\n');
-    return this.sendMessage(text, this.speedKeyboard());
+      'تحكم كامل من الأزرار أدناه.',
+    ].join('\n');
+    return this.sendMessage(text, this.mainKeyboard());
   }
 
   async notifySpeedChanged(speed) {
@@ -207,6 +221,21 @@ class TelegramNotifier {
     ];
     if (chartPath) return this.sendPhoto(chartPath, lines.join('\n'));
     return this.sendMessage(lines.join('\n'));
+  }
+
+  async notifyDailyReport(stats) {
+    const pnl = Number(stats.today_pnl ?? stats.total_pnl ?? 0);
+    const lines = [
+      '📊 <b>تقرير الأداء اليومي — ROZLF</b>',
+      `الرصيد: <b>${Number(stats.balance || 0).toFixed(2)} ${escapeHtml(stats.currency || 'USD')}</b>`,
+      `صفقات اليوم: <b>${Number(stats.today || 0)}</b> | المفتوحة: ${Number(stats.open || 0)}`,
+      `ربح/خسارة اليوم: <b>${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}</b>`,
+      `إجمالي الصفقات المغلقة: ${Number(stats.total || 0)}`,
+      `نسبة النجاح: ${Number(stats.win_rate || 0)}% (${Number(stats.wins || 0)} ربح / ${Number(stats.losses || 0)} خسارة)`,
+      `الوضع: ${escapeHtml(stats.mode || 'demo')} | السرعة: ${escapeHtml(stats.speed || 'medium')}`,
+      '#ROZLF #DailyReport',
+    ];
+    return this.sendMessage(lines.join('\n'), this.mainKeyboard());
   }
 
   async notifyError(message) {

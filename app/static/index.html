@@ -222,6 +222,34 @@
       </section>
 
       <!-- opportunities -->
+      <section class="panel" id="control-panel">
+        <div class="panel-head">
+          <h2>مركز التحكم</h2>
+          <div class="head-actions">
+            <button class="text-btn" id="run-analysis" type="button">تحليل الآن</button>
+            <button class="text-btn" id="open-settings" type="button">الإعدادات</button>
+          </div>
+        </div>
+        <div class="stat-grid">
+          <div class="stat"><small>إجمالي الصفقات</small><strong id="stat-total">0</strong></div>
+          <div class="stat"><small>نسبة النجاح</small><strong id="stat-winrate">0%</strong></div>
+          <div class="stat"><small>إجمالي P/L</small><strong id="stat-pnl">0.00</strong></div>
+          <div class="stat"><small>وضع التشغيل</small><strong id="stat-mode">—</strong></div>
+        </div>
+        <div class="quick-actions">
+          <button class="system-item" id="send-chart" type="button"><span class="sys-icon">🖼</span><span><strong>شارت التحليل</strong><small>إرسال إلى Telegram</small></span></button>
+          <button class="system-item" id="refresh-stats" type="button"><span class="sys-icon">📈</span><span><strong>الإحصائيات</strong><small id="stats-note">تحديث الأداء</small></span></button>
+          <button class="system-item" id="close-all" type="button"><span class="sys-icon">🔒</span><span><strong>إغلاق كل الصفقات</strong><small>يتطلب تأكيداً</small></span></button>
+          <button class="system-item" id="open-errors" type="button"><span class="sys-icon">⚠️</span><span><strong>سجل الأخطاء</strong><small id="error-count">—</small></span></button>
+        </div>
+        <div class="sync-grid">
+          <div><span>المنصة</span><strong id="platform-state">—</strong></div>
+          <div><span>جسر MT5</span><strong id="bridge-state">—</strong></div>
+          <div><span>مزامنة الحساب</span><strong id="sync-age">—</strong></div>
+          <div><span>آخر خطأ</span><strong id="last-error">—</strong></div>
+        </div>
+      </section>
+
       <section class="panel">
         <div class="panel-head">
           <h2 data-i18n="dash.opportunities">فرص السوق</h2>
@@ -285,6 +313,39 @@
   </div>
 
   <!-- modals -->
+  <div class="modal-backdrop hidden" id="settings-modal">
+    <div class="modal modal-wide">
+      <div class="modal-head">
+        <h3>إعدادات التداول والتحليل</h3>
+        <button class="icon-btn close-modal" type="button">✕</button>
+      </div>
+      <form id="settings-form" class="modal-body">
+        <div class="form-grid">
+          <label class="field"><span>وضع التشغيل</span>
+            <select name="mode">
+              <option value="analysis">تحليل فقط</option>
+              <option value="demo">تداول Demo</option>
+            </select>
+          </label>
+          <label class="field"><span>الفريم</span>
+            <select name="timeframe" id="settings-timeframe"></select>
+          </label>
+          <label class="field"><span>المخاطرة لكل صفقة (%)</span><input type="number" name="risk_percent" min="0.1" max="2" step="0.1" /></label>
+          <label class="field"><span>حد الخسارة اليومي (%)</span><input type="number" name="daily_loss_limit_percent" min="0.5" max="10" step="0.5" /></label>
+          <label class="field"><span>أقصى صفقات مفتوحة</span><input type="number" name="max_open_trades" min="1" max="10" step="1" /></label>
+          <label class="field"><span>أقصى صفقات يومية</span><input type="number" name="max_daily_trades" min="1" max="50" step="1" /></label>
+          <label class="field"><span>أدنى قوة إشارة</span><input type="number" name="min_confidence" min="0.5" max="0.95" step="0.01" /></label>
+          <label class="field"><span>أقصى سبريد (نقطة)</span><input type="number" name="max_spread_pips" min="0.5" max="10" step="0.1" /></label>
+          <label class="field"><span>وقف الخسارة (نقطة، 0 تلقائي)</span><input type="number" name="stop_loss_pips" min="0" max="5000" step="1" /></label>
+          <label class="field"><span>الهدف (نقطة، 0 تلقائي)</span><input type="number" name="take_profit_pips" min="0" max="10000" step="1" /></label>
+        </div>
+        <div class="field"><span>الأزواج</span><div id="settings-symbols" class="check-grid"></div></div>
+        <div class="field"><span>الإشعارات</span><div id="settings-notifications" class="check-grid"></div></div>
+        <button class="primary-btn" type="submit">حفظ ومزامنة مع Telegram</button>
+      </form>
+    </div>
+  </div>
+
   <div class="modal-backdrop hidden" id="risk-modal">
     <div class="modal">
       <div class="modal-head">

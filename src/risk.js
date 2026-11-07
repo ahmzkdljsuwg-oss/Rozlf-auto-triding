@@ -10,6 +10,8 @@ const DEFAULTS = {
   max_daily_trades: config.DEFAULT_MAX_DAILY_TRADES,
   min_confidence: config.DEFAULT_MIN_CONFIDENCE,
   max_spread_pips: config.MAX_SPREAD_PIPS,
+  stop_loss_pips: 0,
+  take_profit_pips: 0,
 };
 
 class RiskManager {

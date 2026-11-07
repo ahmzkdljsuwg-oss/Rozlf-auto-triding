@@ -378,6 +378,28 @@ class Database {
     );
   }
 
+  async tradeStats(accountId) {
+    const rows = await this.all(
+      "SELECT COUNT(*) AS total, " +
+      "SUM(CASE WHEN result='WIN' THEN 1 ELSE 0 END) AS wins, " +
+      "SUM(CASE WHEN result='LOSS' THEN 1 ELSE 0 END) AS losses, " +
+      'COALESCE(SUM(pnl),0) AS total_pnl, ' +
+      'COALESCE(AVG(pnl),0) AS avg_pnl ' +
+      "FROM trades WHERE account_id=? AND status='CLOSED'",
+      [accountId],
+    );
+    const row = rows[0] || {};
+    const total = Number(row.total || 0);
+    const wins = Number(row.wins || 0);
+    const losses = Number(row.losses || 0);
+    return {
+      total, wins, losses,
+      total_pnl: Math.round(Number(row.total_pnl || 0) * 100) / 100,
+      avg_pnl: Math.round(Number(row.avg_pnl || 0) * 100) / 100,
+      win_rate: total ? Math.round((wins / total) * 1000) / 10 : 0,
+    };
+  }
+
   // ---------- settings ----------
   async getSetting(key, defaultValue = null) {
     const rows = await this.all('SELECT value FROM settings WHERE key=?', [key]);

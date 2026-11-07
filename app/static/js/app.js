@@ -139,6 +139,7 @@
     $("#dashboard").classList.remove("hidden");
     await refreshStatus();
     await loadHistory();
+    await loadStats();
     if (state.poll) clearInterval(state.poll);
     state.poll = setInterval(tick, 5000);
   }
@@ -149,6 +150,7 @@
     try {
       await refreshStatus();
       if (state.historyTick % 2 === 0) await loadHistory();
+      if (state.historyTick % 6 === 0) await loadStats();
     } catch (err) {
       const pill = $("#conn-pill");
       pill.className = "status-pill bad";
@@ -230,9 +232,28 @@
     $("#telegram-state").textContent = s.telegram_enabled ? t("dash.tgReady") : t("dash.tgOff");
     $("#ai-state").textContent = s.ai_enabled ? t("dash.aiReady") : t("dash.aiUnavailable");
 
+    const platformLabel = s.platform === "mt5" ? "MT5" : s.platform === "expertoption" ? "ExpertOption" : "—";
+    $("#platform-state").textContent = platformLabel + " · " + (s.account_type || "demo").toUpperCase();
+    $("#bridge-state").textContent = s.execution_mode === "live_bridge" ? "متصل" : s.execution_mode === "simulated" ? "محاكاة" : "تحليل فقط";
+    $("#sync-age").textContent = s.account_sync_at ? fmtTime(s.account_sync_at) : "—";
+    $("#last-error").textContent = s.last_error || s.account_sync_error || "—";
+    const modeText = s.analysis_only ? "تحليل فقط" : s.trading_mode === "demo" ? "Demo" : "Real";
+    $("#stat-mode").textContent = modeText;
+
     renderOpportunities(s.opportunities || []);
     renderOpenTrades(s.open_trades || []);
     $("#scan-hint").textContent = s.scan_count ? t("status.scans") + " " + s.scan_count : t("dash.scanning");
+  }
+
+  async function loadStats() {
+    try {
+      const s = await api("/stats");
+      $("#stat-total").textContent = s.total || 0;
+      $("#stat-winrate").textContent = (s.win_rate || 0) + "%";
+      $("#stat-pnl").textContent = fmtMoney(s.total_pnl, "USD");
+      $("#stat-pnl").className = Number(s.total_pnl || 0) >= 0 ? "pos" : "neg";
+      $("#stats-note").textContent = "مفتوحة: " + (s.open || 0) + " · اليوم: " + (s.today || 0);
+    } catch (err) { /* silent during polling */ }
   }
 
   function renderOpportunities(list) {
@@ -475,6 +496,119 @@
     }
   }
 
+  async function openSettings() {
+    try {
+      const s = await api("/settings");
+      const form = $("#settings-form");
+      ["mode", "timeframe", "risk_percent", "daily_loss_limit_percent", "max_open_trades",
+        "max_daily_trades", "min_confidence", "max_spread_pips", "stop_loss_pips", "take_profit_pips"]
+        .forEach((key) => { if (form[key] !== undefined && s[key] !== undefined) form[key].value = s[key]; });
+
+      const tfSelect = $("#settings-timeframe");
+      const timeframes = (state.config && state.config.timeframes) || ["M5", "M15", "H1", "H4", "D1"];
+      tfSelect.innerHTML = timeframes.map((tf) =>
+        '<option value="' + esc(tf) + '">' + esc(tf) + "</option>").join("");
+      tfSelect.value = s.timeframe;
+
+      const symbols = (state.config && state.config.symbols) || [];
+      $("#settings-symbols").innerHTML = symbols.map((sym) =>
+        '<label class="check-item"><input type="checkbox" name="symbol" value="' + esc(sym) + '"' +
+        ((s.symbols || []).includes(sym) ? " checked" : "") + " /><span>" + esc(sym) + "</span></label>").join("");
+
+      const labels = {
+        bot_started: "بدء التحليل", opportunity: "فرصة جديدة", trade_open: "فتح صفقة",
+        trade_close: "إغلاق صفقة", charts: "صور الشارت", daily_report: "التقرير اليومي",
+      };
+      $("#settings-notifications").innerHTML = Object.keys(labels).map((key) =>
+        '<label class="check-item"><input type="checkbox" name="notify" value="' + esc(key) + '"' +
+        ((s.notifications || {})[key] !== false ? " checked" : "") + " /><span>" + esc(labels[key]) + "</span></label>").join("");
+
+      $("#settings-modal").classList.remove("hidden");
+    } catch (err) {
+      toast(err.message, "error");
+    }
+  }
+
+  async function saveSettings(e) {
+    e.preventDefault();
+    const form = e.target;
+    const notifications = {};
+    $$('#settings-notifications input[name="notify"]').forEach((cb) => { notifications[cb.value] = cb.checked; });
+    const body = {
+      mode: form.mode.value,
+      timeframe: form.timeframe.value,
+      risk_percent: Number(form.risk_percent.value),
+      daily_loss_limit_percent: Number(form.daily_loss_limit_percent.value),
+      max_open_trades: Number(form.max_open_trades.value),
+      max_daily_trades: Number(form.max_daily_trades.value),
+      min_confidence: Number(form.min_confidence.value),
+      max_spread_pips: Number(form.max_spread_pips.value),
+      stop_loss_pips: Number(form.stop_loss_pips.value),
+      take_profit_pips: Number(form.take_profit_pips.value),
+      symbols: $$('#settings-symbols input[name="symbol"]:checked').map((cb) => cb.value),
+      notifications,
+    };
+    if (!body.symbols.length) { toast("اختر زوجاً واحداً على الأقل", "error"); return; }
+    try {
+      await api("/settings", { method: "POST", body: JSON.stringify(body) });
+      $("#settings-modal").classList.add("hidden");
+      toast("تم الحفظ ومزامنة الإعدادات مع Telegram", "success");
+      await refreshStatus();
+    } catch (err) {
+      toast(err.message, "error");
+    }
+  }
+
+  async function runAnalysis() {
+    const btn = $("#run-analysis");
+    btn.disabled = true;
+    try {
+      const result = await api("/analysis/run", { method: "POST" });
+      toast("اكتمل التحليل — الفرص: " + result.opportunities.length, "success");
+      await refreshStatus();
+      await loadStats();
+    } catch (err) {
+      toast(err.message, "error");
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  async function openAnalysisChart() {
+    try {
+      const chart = await api("/analysis/chart");
+      const name = String(chart.url || "").split("/").pop();
+      await openChart(name);
+    } catch (err) {
+      toast(err.message, "error");
+    }
+  }
+
+  async function closeAllTrades() {
+    if (!window.confirm("إغلاق كل الصفقات المفتوحة عبر الوسيط؟")) return;
+    try {
+      const result = await api("/trades/close-all", { method: "POST", body: JSON.stringify({ confirm: true }) });
+      toast("أُغلقت " + result.closed + " صفقة، فشل " + result.failed, "success");
+      await refreshStatus();
+      await loadHistory();
+    } catch (err) {
+      toast(err.message, "error");
+    }
+  }
+
+  async function openErrorLog() {
+    try {
+      const data = await api("/logs?limit=100&level=warn");
+      $("#log-list").innerHTML = (data.logs || []).map((l) =>
+        '<div class="log-row"><span class="lvl ' + esc(l.level) + '">' + esc(l.level) + "</span>" +
+        '<span class="msg">' + esc(l.message) + '</span><span class="ts">' + fmtTime(l.created_at) + "</span></div>"
+      ).join("") || '<div class="empty-state">لا توجد أخطاء مسجلة.</div>';
+      $("#logs-modal").classList.remove("hidden");
+    } catch (err) {
+      toast(err.message, "error");
+    }
+  }
+
   async function logout() {
     if (!window.confirm("Disconnect account?")) return;
     try { await api("/disconnect", { method: "POST" }); } catch (err) { /* ignore */ }
@@ -511,6 +645,13 @@
     $("#sync-account").addEventListener("click", syncAccount);
     $("#risk-form").addEventListener("submit", saveRisk);
     $("#open-logs").addEventListener("click", openLogs);
+    $("#open-errors").addEventListener("click", openErrorLog);
+    $("#open-settings").addEventListener("click", openSettings);
+    $("#settings-form").addEventListener("submit", saveSettings);
+    $("#run-analysis").addEventListener("click", runAnalysis);
+    $("#send-chart").addEventListener("click", openAnalysisChart);
+    $("#close-all").addEventListener("click", closeAllTrades);
+    $("#refresh-stats").addEventListener("click", loadStats);
     $("#refresh-history").addEventListener("click", loadHistory);
     $("#test-telegram").addEventListener("click", testTelegram);
     $("#test-market").addEventListener("click", testMarket);
