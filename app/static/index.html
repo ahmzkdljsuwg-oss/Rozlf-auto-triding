@@ -293,6 +293,35 @@
       </section>
 
 
+      <section class="panel image-analysis-panel">
+        <div class="panel-head">
+          <h2>تحليل صورة الشارت بالذكاء الاصطناعي</h2>
+          <span class="panel-hint">Forex · OTC · Smarty · غيرها</span>
+        </div>
+        <p class="scanner-sub">ارفع لقطة شاشة واضحة من الشارت. هذا الوضع يحلل الصورة فقط، ولا يدّعي قراءة أسعار OTC أو Smarty مباشرة من حسابك.</p>
+        <div class="image-analysis-controls">
+          <label class="field-label" for="chart-market-type">نوع السوق</label>
+          <select id="chart-market-type">
+            <option value="OTC">OTC</option>
+            <option value="Smarty">Smarty</option>
+            <option value="Forex">Forex</option>
+            <option value="Other">أخرى</option>
+          </select>
+          <label class="field-label" for="chart-symbol">اسم الأصل (اختياري)</label>
+          <input id="chart-symbol" type="text" maxlength="80" placeholder="مثال: EUR/USD أو اسم الأصل الظاهر">
+          <label class="field-label" for="chart-timeframe">الفريم (اختياري)</label>
+          <select id="chart-timeframe">
+            <option value="unknown">غير معروف</option><option>M1</option><option>M5</option><option>M15</option><option>M30</option><option>H1</option><option>H4</option>
+          </select>
+          <label class="field-label" for="chart-image-file">صورة الشارت (PNG / JPG / WEBP، حتى 5MB)</label>
+          <input id="chart-image-file" type="file" accept="image/png,image/jpeg,image/webp">
+          <button class="primary-btn" id="analyze-chart-image" type="button">حلّل الصورة</button>
+        </div>
+        <div id="image-analysis-status" class="scanner-state" aria-live="polite"></div>
+        <div id="image-analysis-result" class="image-analysis-result hidden"></div>
+        <p class="scanner-disclaimer">النتيجة تقديرية وليست توصية مضمونة. لا يتم فتح أي صفقة تلقائياً من تحليل الصور.</p>
+      </section>
+
       <!-- open positions -->
       <section class="panel">
         <div class="panel-head">

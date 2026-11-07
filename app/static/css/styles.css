@@ -560,3 +560,12 @@ button.system-item:hover { border-color: #d7e6fb; }
   .scanner-price { display: none; }
   .scanner-badges { align-items: flex-end; }
 }
+
+
+.image-analysis-controls{display:grid;grid-template-columns:1fr;gap:9px;margin-top:12px}
+.image-analysis-controls input,.image-analysis-controls select{width:100%;min-height:42px;border:1px solid var(--line,#dce4ec);border-radius:10px;padding:9px 11px;background:var(--surface,#fff);color:var(--text,#17212b);font:inherit}
+.image-analysis-controls .field-label{font-size:.88rem;font-weight:700;margin-top:4px}
+.image-analysis-result{margin-top:14px;padding:14px;border:1px solid var(--line,#dce4ec);border-radius:12px;background:var(--surface,#fff);line-height:1.8;overflow-wrap:anywhere}
+.image-analysis-result .analysis-direction{font-size:1.2rem;font-weight:800}
+.image-analysis-result ul{padding-inline-start:22px;margin:6px 0}
+.image-analysis-result .analysis-warning{font-size:.86rem;opacity:.8;margin-top:10px}

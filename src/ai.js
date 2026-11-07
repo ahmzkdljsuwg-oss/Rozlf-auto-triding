@@ -93,6 +93,55 @@ class GeminiAnalyzer {
       return { verdict: 'UNAVAILABLE', confidence: null, rationale: `Gemini unavailable: ${err.message}`, enabled: true };
     }
   }
+
+  async analyzeChartImage({ imageBase64, mimeType, marketType = 'unknown', symbol = 'unknown', timeframe = 'unknown' }) {
+    if (!this.enabled) throw new Error('GEMINI_API_KEY is not configured');
+    const clean = String(imageBase64 || '').replace(/^data:[^,]+,/, '');
+    if (!clean || clean.length > 7_000_000) throw new Error('Image is missing or too large (max about 5 MB)');
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(mimeType)) {
+      throw new Error('Only PNG, JPEG and WEBP images are supported');
+    }
+    const prompt = [
+      'You are ROZLF chart-analysis assistant. Analyze ONLY what is visible in this chart image.',
+      'The market may be Forex, OTC, Smarty, crypto, stocks, or another instrument.',
+      'Do not claim to access broker account data, live prices, or hidden candles.',
+      'Do not invent exact prices, expiry, candle times, or indicators that are not readable.',
+      'If the screenshot is unclear or missing price scale/timeframe, say so and lower confidence.',
+      'Assess trend and market structure; BOS/CHoCH only when visually supported; liquidity sweep, support/resistance zones, order blocks and FVG only when visible.',
+      'Return JSON only with keys: market_type, symbol_seen, timeframe_seen, direction (BUY/SELL/WAIT), confidence (0-100), trend, structure, key_zones, setup, invalidation, expiry_guidance, reasons (array), limitations (array).',
+      'Never describe a signal as guaranteed. For OTC/Smarty explicitly state image-only analysis and that no verified broker feed was used.',
+      `User hints: market=${marketType}; symbol=${symbol}; timeframe=${timeframe}.`,
+    ].join('\n');
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(this.model)}:generateContent?key=${encodeURIComponent(this.apiKey)}`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts: [
+          { text: prompt },
+          { inline_data: { mime_type: mimeType, data: clean } },
+        ] }],
+        generationConfig: { temperature: 0.1, maxOutputTokens: 900, responseMimeType: 'application/json' },
+      }),
+      signal: AbortSignal.timeout(45000),
+    });
+    if (!response.ok) throw new Error(`Gemini image analysis failed (HTTP ${response.status})`);
+    const data = await response.json();
+    let text = (data?.candidates?.[0]?.content?.parts || []).map((part) => part.text || '').join('').trim();
+    text = text.replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim();
+    let result;
+    try { result = JSON.parse(text); } catch { throw new Error('AI returned an unreadable analysis'); }
+    const direction = String(result.direction || 'WAIT').toUpperCase();
+    result.direction = ['BUY', 'SELL', 'WAIT'].includes(direction) ? direction : 'WAIT';
+    result.confidence = Math.max(0, Math.min(100, Number(result.confidence) || 0));
+    result.market_type = String(result.market_type || marketType).slice(0, 80);
+    result.symbol_seen = String(result.symbol_seen || symbol).slice(0, 80);
+    result.timeframe_seen = String(result.timeframe_seen || timeframe).slice(0, 40);
+    result.image_only = true;
+    result.execution_allowed = false;
+    return result;
+  }
+
 }
 
 module.exports = { GeminiAnalyzer };

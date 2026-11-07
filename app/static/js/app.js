@@ -811,6 +811,63 @@
     toast(t("toast.loggedOut"));
   }
 
+
+  async function analyzeChartImage() {
+    const input = $("#chart-image-file");
+    const file = input.files && input.files[0];
+    const status = $("#image-analysis-status");
+    const resultBox = $("#image-analysis-result");
+    resultBox.classList.add("hidden");
+    if (!file) { toast("اختر صورة الشارت أولاً", "error"); return; }
+    if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) {
+      toast("الصيغ المدعومة PNG وJPG وWEBP", "error"); return;
+    }
+    if (file.size > 5 * 1024 * 1024) { toast("حجم الصورة يجب ألا يتجاوز 5MB", "error"); return; }
+    status.textContent = "جاري تحليل الصورة بالذكاء الاصطناعي...";
+    $("#analyze-chart-image").disabled = true;
+    try {
+      const dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ""));
+        reader.onerror = () => reject(new Error("تعذرت قراءة الصورة"));
+        reader.readAsDataURL(file);
+      });
+      const payload = {
+        image_base64: dataUrl.split(",")[1],
+        mime_type: file.type,
+        market_type: $("#chart-market-type").value,
+        symbol: $("#chart-symbol").value.trim() || "unknown",
+        timeframe: $("#chart-timeframe").value,
+      };
+      const analysis = await api("/analysis/image", {
+        method: "POST", body: JSON.stringify(payload),
+      });
+      const direction = analysis.direction || "WAIT";
+      const reasons = Array.isArray(analysis.reasons) ? analysis.reasons : [];
+      const limitations = Array.isArray(analysis.limitations) ? analysis.limitations : [];
+      const zones = Array.isArray(analysis.key_zones) ? analysis.key_zones : [];
+      resultBox.innerHTML =
+        '<div class="analysis-direction">' + esc(direction) + ' · ثقة ' + esc(analysis.confidence) + '%</div>' +
+        '<p><b>السوق:</b> ' + esc(analysis.market_type) + ' · <b>الأصل:</b> ' + esc(analysis.symbol_seen) +
+        ' · <b>الفريم:</b> ' + esc(analysis.timeframe_seen) + '</p>' +
+        '<p><b>الاتجاه:</b> ' + esc(analysis.trend || "غير واضح") + '</p>' +
+        '<p><b>هيكل السوق:</b> ' + esc(analysis.structure || "غير واضح") + '</p>' +
+        '<p><b>المناطق المهمة:</b> ' + esc(zones.join("، ") || "لم تُحدد بوضوح") + '</p>' +
+        '<p><b>السيناريو:</b> ' + esc(analysis.setup || "لا يوجد إعداد واضح") + '</p>' +
+        '<p><b>إبطال الفكرة:</b> ' + esc(analysis.invalidation || "غير محدد") + '</p>' +
+        '<p><b>الأسباب:</b></p><ul>' + reasons.map((x) => '<li>' + esc(x) + '</li>').join("") + '</ul>' +
+        (limitations.length ? '<p><b>ملاحظات وحدود التحليل:</b></p><ul>' +
+          limitations.map((x) => '<li>' + esc(x) + '</li>').join("") + '</ul>' : '') +
+        '<p class="analysis-warning">تحليل صورة فقط؛ لا يوجد تحقق من سعر الوسيط أو بيانات الحساب، ولا يتم تنفيذ صفقات.</p>';
+      resultBox.classList.remove("hidden");
+      status.textContent = "اكتمل تحليل الصورة.";
+    } catch (err) {
+      status.textContent = "فشل التحليل: " + err.message;
+    } finally {
+      $("#analyze-chart-image").disabled = false;
+    }
+  }
+
   /* ---------------- wiring ---------------- */
   function bind() {
     $$("[data-platform]").forEach((b) => b.addEventListener("click", () => selectPlatform(b.dataset.platform)));
@@ -840,6 +897,7 @@
     $("#open-settings").addEventListener("click", openSettings);
     $("#settings-form").addEventListener("submit", saveSettings);
     $("#run-analysis").addEventListener("click", runAnalysis);
+    $("#analyze-chart-image").addEventListener("click", analyzeChartImage);
     $("#scanner-start").addEventListener("click", startScanning);
     $("#scanner-stop").addEventListener("click", stopScanning);
     $("#scanner-trade").addEventListener("click", scannerTrade);

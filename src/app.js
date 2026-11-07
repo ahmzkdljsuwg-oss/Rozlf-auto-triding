@@ -24,7 +24,7 @@ function safeChartName(trade) {
 function createApp({ engine }) {
   const app = express();
   app.disable('x-powered-by');
-  app.use(express.json({ limit: '64kb' }));
+  app.use(express.json({ limit: '8mb' }));
 
   app.use((req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -215,6 +215,30 @@ function createApp({ engine }) {
       can_trade: false,
       official_integration: false,
     });
+  });
+
+  app.post('/api/analysis/image', async (req, res) => {
+    try {
+      const body = req.body || {};
+      const mimeType = String(body.mime_type || '');
+      const imageBase64 = String(body.image_base64 || '');
+      if (!imageBase64 || imageBase64.length > 7_000_000) {
+        return fail(res, 422, 'اختر صورة واضحة لا يتجاوز حجمها 5 ميجابايت.');
+      }
+      const result = await engine.analyzer.analyzeChartImage({
+        imageBase64, mimeType,
+        marketType: String(body.market_type || 'unknown').slice(0, 40),
+        symbol: String(body.symbol || 'unknown').slice(0, 80),
+        timeframe: String(body.timeframe || 'unknown').slice(0, 40),
+      });
+      await engine.db.addLog('info', 'image_analysis', 'Chart image analyzed', {
+        market_type: result.market_type, symbol: result.symbol_seen,
+        direction: result.direction, confidence: result.confidence,
+      });
+      res.json(result);
+    } catch (err) {
+      return fail(res, 422, String(err.message || 'Image analysis failed').slice(0, 240));
+    }
   });
 
   app.get('/api/stats', async (req, res) => {
