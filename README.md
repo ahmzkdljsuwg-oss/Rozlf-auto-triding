@@ -144,6 +144,18 @@ npm test                 # 12 اختباراً
 والقرص المحلي مؤقت (تُفقد قاعدة SQLite والشارتات عند إعادة النشر). للاستمرارية استخدم
 `DATABASE_URL` (PostgreSQL) وخطة مدفوعة أو Keep-alive خارجي حسب سياسة Render.
 
+### عند ظهور `npm error enoent`
+
+هذا يعني أن npm لم يجد `package.json` في مجلد البناء. تأكد في إعدادات خدمة Render من:
+
+- **Root Directory:** فارغ (أو `.`) — وليس `app` أو أي مجلد فرعي.
+- **Build Command:** `npm install`
+- **Start Command:** `npm start`
+
+المشروع موجود في جذر المستودع، و`app/package.json` مجرد توافق احتياطي لو بقي Root Directory
+على `app`. بعد تعديل Root Directory احفظ الإعدادات ثم أعد النشر مع **Clear build cache**.
+
+
 ---
 
 ## 11. API مختصر

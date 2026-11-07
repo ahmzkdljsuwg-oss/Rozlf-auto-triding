@@ -1,0 +1,10 @@
+{
+  "name": "rozlf-auto-trader-render-compat",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Compatibility entry for a Render service whose Root Directory is set to app/. The real project lives at the repository root.",
+  "scripts": {
+    "postinstall": "cd .. && npm install --omit=dev --no-audit --no-fund",
+    "start": "node ../server.js"
+  }
+}

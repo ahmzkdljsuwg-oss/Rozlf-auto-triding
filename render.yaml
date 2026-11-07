@@ -3,6 +3,7 @@ services:
     name: rozlf-auto-trader
     runtime: node
     plan: free
+    rootDir: .
     buildCommand: npm install
     startCommand: npm start
     healthCheckPath: /api/health
