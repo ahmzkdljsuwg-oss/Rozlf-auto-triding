@@ -102,7 +102,8 @@ button { cursor: pointer; }
 html[dir="rtl"] .back-btn { transform: scaleX(-1); }
 
 .choice-grid { display: grid; gap: 12px; margin-bottom: 22px; }
-@media (min-width: 680px) { .choice-grid { grid-template-columns: 1fr 1fr; } }
+@media (min-width: 680px) {
+  .account-metrics { grid-template-columns: repeat(4, minmax(0, 1fr)); } .choice-grid { grid-template-columns: 1fr 1fr; } }
 
 .choice-card {
   display: flex; align-items: center; gap: 14px; text-align: start;
@@ -242,6 +243,16 @@ html[dir="rtl"] .choice-arrow { transform: scaleX(-1); }
 .balance-row { display: flex; align-items: baseline; gap: 8px; margin: 10px 0 18px; position: relative; }
 .balance-value { font-size: clamp(32px, 7vw, 44px); font-weight: 800; letter-spacing: -1px; }
 .balance-cur { font-size: 12px; opacity: .75; font-weight: 700; }
+.account-metrics {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px;
+  position: relative; margin: 0 0 16px;
+}
+.account-metrics div {
+  background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.22);
+  border-radius: 12px; padding: 8px 10px; display: flex; flex-direction: column; gap: 2px; min-width: 0;
+}
+.account-metrics span { font-size: 9.5px; opacity: .72; white-space: nowrap; }
+.account-metrics strong { font-size: 13px; font-weight: 800; overflow: hidden; text-overflow: ellipsis; }
 .hero-stats { display: flex; gap: 24px; position: relative; flex-wrap: wrap; }
 .hero-stats div { display: flex; flex-direction: column; gap: 3px; }
 .hero-stats span { font-size: 10.5px; opacity: .75; }
@@ -276,6 +287,8 @@ html[dir="rtl"] .choice-arrow { transform: scaleX(-1); }
 .risk-item strong { font-size: 13.5px; }
 .text-btn { border: none; background: none; color: var(--blue); font-weight: 800; font-size: 12px; padding: 6px; }
 .text-btn:hover { text-decoration: underline; }
+.text-btn.light { color: #fff; opacity: .85; font-size: 10.5px; }
+.text-btn:disabled { opacity: .45; cursor: default; }
 
 .panel {
   background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
@@ -326,6 +339,8 @@ html[dir="ltr"] .opp-row:hover { transform: translateX(2px); }
 .pos-grid div, .hist-grid div { display: flex; flex-direction: column; gap: 1px; }
 .pos-grid span, .hist-grid span { color: var(--muted-2); font-size: 9px; }
 .pos-grid strong, .hist-grid strong { font-size: 11px; font-weight: 700; }
+.pos-grid strong.pos { color: var(--green); }
+.pos-grid strong.neg { color: var(--red); }
 .pnl-pos { color: var(--green); }
 .pnl-neg { color: var(--red); }
 .history-row .price-line { color: var(--muted); font-size: 10px; margin-top: 5px; }

@@ -29,6 +29,7 @@ class RiskManager {
   evaluate({
     signal, balance, equity, openTrades = [], todayTrades = [],
     todayPnl = 0, spreadPips = 0, dataFresh = true, connected = true,
+    accountSynced = true, freeMargin = null, marginLevel = null,
     emergencyStop = false, running = true,
   }) {
     const riskPercent = this.get('risk_percent');
@@ -40,7 +41,11 @@ class RiskManager {
     if (!running) return reject('Bot is not running');
     if (emergencyStop) return reject('Emergency stop active');
     if (!connected) return reject('Trading account not connected');
+    if (!accountSynced) return reject('MT5 account is not synced');
     if (!dataFresh) return reject('Market data is stale');
+    if (marginLevel !== null && Number.isFinite(Number(marginLevel)) && Number(marginLevel) < 100) {
+      return reject(`Margin level ${Number(marginLevel).toFixed(0)}% is too low`);
+    }
 
     const confidence = Number(signal.confidence || 0);
     if (signal.side !== 'BUY' && signal.side !== 'SELL') return reject('Signal is NO TRADE');
@@ -86,6 +91,9 @@ class RiskManager {
 
     if (lot < 0.01) return reject('Account balance too small for minimum lot at this risk');
     if (riskAmount > Number(balance || 0) * 0.05) return reject('Risk per trade exceeds 5% guard');
+    if (freeMargin !== null && Number.isFinite(Number(freeMargin)) && Number(freeMargin) < riskAmount) {
+      return reject('Free margin is below the risk amount');
+    }
 
     return {
       allowed: true,

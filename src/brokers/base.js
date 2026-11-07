@@ -12,11 +12,16 @@ function accountInfo(fields = {}) {
     login: fields.login || '',
     server: fields.server || '',
     balance: Number(fields.balance || 0),
-    equity: Number(fields.equity || fields.balance || 0),
+    equity: Number(fields.equity ?? fields.balance ?? 0),
+    margin_free: Number(fields.margin_free ?? fields.free_margin ?? 0),
+    margin_used: Number(fields.margin_used ?? fields.used_margin ?? 0),
+    margin_level: fields.margin_level === null || fields.margin_level === undefined
+      ? null : Number(fields.margin_level),
     currency: fields.currency || 'USD',
     leverage: Number(fields.leverage || 100),
     broker: fields.broker || '',
     is_demo: fields.is_demo !== false,
+    synced_at: fields.synced_at || null,
   };
 }
 

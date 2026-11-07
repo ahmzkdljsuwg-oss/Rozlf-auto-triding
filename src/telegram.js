@@ -98,6 +98,35 @@ class TelegramNotifier {
     return this.sendPhoto(chartPath, lines.join('\n'));
   }
 
+  async notifyUpdate(trade, changes = {}) {
+    if (!this.enabled) return { ok: false, error: 'Telegram is not configured' };
+    const lines = [
+      `<b>ROZLF — position updated: ${escapeHtml(trade.symbol)} ${escapeHtml(trade.side)}</b>`,
+      `Ticket: <code>${escapeHtml(trade.broker_order_id || '')}</code>`,
+      `Entry: <code>${escapeHtml(trade.entry_price)}</code> | Current: <code>${escapeHtml(changes.current_price ?? trade.current_price ?? '')}</code>`,
+      `Stop loss: <code>${escapeHtml(trade.stop_loss)}</code> → <code>${escapeHtml(changes.stop_loss ?? trade.stop_loss)}</code>`,
+      `Take profit: <code>${escapeHtml(trade.take_profit)}</code> → <code>${escapeHtml(changes.take_profit ?? trade.take_profit)}</code>`,
+      `Unrealized P/L: <b>${Number(changes.unrealized_pnl ?? trade.unrealized_pnl ?? 0).toFixed(2)}</b>`,
+      'Source: MetaTrader 5 (synced)',
+      '#ROZLF #TradeUpdate',
+    ];
+    return this.sendMessage(lines.join('\n'));
+  }
+
+  async notifyImported(trade, chartPath) {
+    if (!this.enabled) return { ok: false, error: 'Telegram is not configured' };
+    const lines = [
+      `<b>ROZLF — MT5 position detected: ${escapeHtml(trade.symbol)} ${escapeHtml(trade.side)}</b>`,
+      `Ticket: <code>${escapeHtml(trade.broker_order_id || '')}</code> | Lot: ${escapeHtml(trade.lot)}`,
+      `Entry: <code>${escapeHtml(trade.entry_price)}</code>`,
+      `Stop loss: <code>${escapeHtml(trade.stop_loss)}</code> | Take profit: <code>${escapeHtml(trade.take_profit)}</code>`,
+      'This position was opened outside the site and imported from MetaTrader 5.',
+      '#ROZLF #MT5Sync',
+    ];
+    if (chartPath) return this.sendPhoto(chartPath, lines.join('\n'));
+    return this.sendMessage(lines.join('\n'));
+  }
+
   async notifyClose(trade, chartPath) {
     if (!this.enabled) return { ok: false, error: 'Telegram is not configured' };
     const pnl = Number(trade.pnl || 0);

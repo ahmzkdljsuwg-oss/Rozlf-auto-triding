@@ -75,6 +75,15 @@ function createApp({ engine }) {
     res.json(await engine.status());
   });
 
+  app.post('/api/account/sync', async (req, res) => {
+    if (!engine.account) return fail(res, 409, 'No account is connected');
+    await engine.syncAccount();
+    if (engine.broker && engine.broker.supportsPositions) await engine.syncBrokerTrades();
+    const status = await engine.status();
+    status.open_trades = status.open_trades.map(safeChartName);
+    res.json(status);
+  });
+
   app.post('/api/connect', async (req, res) => {
     const body = req.body || {};
     const errors = [];

@@ -80,7 +80,10 @@ npm test                 # 12 اختباراً
 | `DATABASE_URL` | رابط PostgreSQL (اختياري). بدونه تُستخدم SQLite في `data/rozzlf.db` |
 | `REAL_TRADING_APPROVED` | `false` افتراضياً. لا تغيّره إلا بموافقة صريحة |
 | `MT5_ENABLED` | `true` فقط عند وجود جسر MT5 على Windows |
-| `MT5_BRIDGE_URL` / `MT5_BRIDGE_TOKEN` | عنوان جسر MT5 ورمز الحماية |
+| `MT5_BRIDGE_URL` / `MT5_BRIDGE_TOKEN` | عنوان جسر MT5 ورمز الحماية (HTTPS فقط خارج الشبكة المحلية) |
+| `MT5_BRIDGE_SECRET` | سرّ HMAC مشترك بين Render والجسر — نفس القيمة على الطرفين |
+| `MT5_ACCOUNT_SYNC_MAX_AGE_SECONDS` | أقدمية مزامنة الحساب المسموح بها قبل منع الصفقات (30 ثانية) |
+| `TRADE_REENTRY_COOLDOWN_SECONDS` | أقل مدة قبل إعادة فتح نفس الزوج (300 ثانية) |
 | `GEMINI_API_KEY` / `GEMINI_MODEL` | مراجعة Gemini الاختيارية |
 | `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` | إشعارات Telegram |
 | `SCAN_INTERVAL_SECONDS` | فاصل المسح (60 افتراضياً) |
@@ -101,16 +104,27 @@ npm test                 # 12 اختباراً
 
 ---
 
-## 6. MT5
+## 6. MT5 (تنفيذ Demo حقيقي عبر جسر Windows)
 
-التنفيذ الحقيقي يحتاج:
+Render لا يستطيع تشغيل طرفية MT5 لأن حزمة `MetaTrader5` الرسمية تعمل على Windows فقط.
+لذلك يوجد جسر جاهز في [`mt5_bridge/`](mt5_bridge/README.md):
 
-1. Windows VPS أو جهاز Windows مع **MetaTrader 5** مثبّتاً ومسجّلاً الدخول.
-2. جسر HTTP صغير يستخدم حزمة `MetaTrader5` الرسمية ويستقبل `POST /connect` و`/open` و`/close`.
-3. `MT5_ENABLED=true` و`MT5_BRIDGE_URL` و`MT5_BRIDGE_TOKEN`.
+1. Windows 10/11 أو Windows VPS مع **MetaTrader 5** مثبّتاً ومسجّلاً الدخول بحساب Demo.
+2. `pip install -r mt5_bridge/requirements.txt` ثم تشغيل `start_bridge.bat`.
+3. نشره خلف HTTPS (Cloudflare Tunnel أو Caddy أو nginx) — لا تعرّضه كـ HTTP عام.
+4. على Render: `MT5_ENABLED=true`، `MT5_BRIDGE_URL=https://...`، و`MT5_BRIDGE_TOKEN`
+   و`MT5_BRIDGE_SECRET` بقيم مطابقة لما في الجسر.
 
-بدون ذلك يعمل MT5 Demo في وضع `simulated` (Paper) على أسعار حقيقية. Render وحده لا يستطيع تشغيل
-مكتبة MT5 لأنها تعتمد على Windows/الطرفية.
+كل طلب من Render إلى الجسر موقّع بـ HMAC-SHA256 مع طابع زمني (رفض بعد 5 دقائق).
+نقاط الجسر: `GET /ping`، `POST /connect`، `POST /disconnect`، `GET /account`،
+`GET /positions`، `GET /history`، `GET /price`، `POST /order`، `POST /close`.
+
+عند نجاح المزامنة تعرض الواجهة الرصيد وEquity والهامش الحر والمستخدم ومستوى الهامش من MT5.
+إذا فشلت المزامنة يصبح الحساب «غير متصل» وتُمنع الصفقات الجديدة؛ ولا تُسجَّل صفقة إلا بعد
+تأكيد MT5 لتذكرة حقيقية. بدون جسر يعمل MT5 Demo في وضع `simulated` (Paper) على أسعار حقيقية.
+
+**قبل التشغيل الفعلي:** شغّل الجسر واختبر `npm test` ثم سجّل الدخول من الواجهة وتحقق من
+تطابق الرصيد. لا تدّعِ أن التنفيذ الحقيقي يعمل قبل هذه الخطوة.
 
 ## 7. ExpertOption
 
@@ -188,6 +202,8 @@ approved public trading API, so it is analysis and alerts only.
 
 ## 14. حدود معروفة
 
-- لا يمكن اختبار الصفقات الحقيقية أو منصة MT5 هنا (تحتاج Windows + MT5).
+- اختبارات MT5 هنا تعتمد على جسر وهمي داخل `tests/test_mt5_bridge.py` و`tests/mt5sync.test.js`؛
+  التداول الحقيقي يحتاج Windows + MT5 + جسر HTTPS ولم يُشغَّل في هذه البيئة.
+- صفقات ExpertOption تحليل وتنبيهات فقط (لا يوجد API تداول رسمي).
 - Telegram وGemini يحتاجان مفاتيح حقيقية للتحقق النهائي.
 - في عطلة السوق تُرفض البيانات القديمة عمداً، فلا تُفتح صفقات.

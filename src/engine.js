@@ -41,6 +41,17 @@ class TradingEngine {
     this.accountBalance = 0;
     this.accountEquity = 0;
     this.accountCurrency = 'USD';
+    this.marginFree = 0;
+    this.marginUsed = 0;
+    this.marginLevel = null;
+    this.accountSynced = false;
+    this.accountSyncAt = null;
+    this.accountSyncError = null;
+    this.positionSyncAt = null;
+    this.positionSyncError = null;
+    this.brokerPositions = 0;
+    this._lastTradeAt = new Map();
+    this._nextDelayMs = null;
 
     this._timer = null;
     this._busy = false;
@@ -104,12 +115,18 @@ class TradingEngine {
       mode = 'simulated';
     }
 
-    const info = await broker.connect(login, password, server);
+    let info = await broker.connect(login, password, server);
+    info = await broker.accountInfo();
+    if (!Number.isFinite(Number(info.balance)) || !Number.isFinite(Number(info.equity))) {
+      throw new Error('Broker did not return a valid account snapshot; trading is blocked');
+    }
     const existing = await this.db.latestAccount(platform, accountType);
-    const startingBalance = existing && existing.login === login ? existing.balance : info.balance;
+    let startingBalance = Number(info.balance);
     if (broker instanceof PaperBroker) {
-      broker.balance = Number(startingBalance || config.DEMO_START_BALANCE);
-      broker.equity = broker.balance;
+      startingBalance = Number(existing && existing.login === login ? existing.balance : config.DEMO_START_BALANCE);
+      broker.balance = startingBalance;
+      broker.equity = startingBalance;
+      info = await broker.accountInfo();
     }
 
     const accountRow = await this.db.upsertAccount(
@@ -122,17 +139,31 @@ class TradingEngine {
     this.executionMode = mode;
     this.platform = platform;
     this.accountType = accountType;
-    this.accountBalance = startingBalance;
-    this.accountEquity = startingBalance;
+    this.accountBalance = Number(info.balance);
+    this.accountEquity = Number(info.equity);
+    this.marginFree = Number(info.margin_free || 0);
+    this.marginUsed = Number(info.margin_used || 0);
+    this.marginLevel = info.margin_level === null ? null : Number(info.margin_level);
     this.accountCurrency = info.currency || 'USD';
+    this.accountSynced = true;
+    this.accountSyncAt = info.synced_at || utcnow();
+    this.accountSyncError = null;
     this.emergency = false;
     this.lastError = null;
     this.opportunities = [];
+    this._lastTradeAt.clear();
 
-    await this.db.setAccountStatus(accountRow.id, 'connected', startingBalance);
-    await this.db.addLog('info', 'broker', `Connected ${platform} ${accountType} ${login}`, {
-      mode, server: server || info.server || '',
+    await this.db.setAccountSync(accountRow.id, {
+      status: 'connected', balance: this.accountBalance, equity: this.accountEquity,
+      margin_free: this.marginFree, margin_used: this.marginUsed, margin_level: this.marginLevel,
+      currency: this.accountCurrency, synced_at: this.accountSyncAt,
     });
+    this.account = { ...accountRow, ...(await this.db.getAccount(accountRow.id)) };
+    await this.db.addLog('info', 'broker', `Connected ${platform} ${accountType} ${login}`, {
+      mode, server: server || info.server || '', balance: this.accountBalance,
+      equity: this.accountEquity, free_margin: this.marginFree,
+    });
+    if (broker.supportsPositions) await this.syncBrokerTrades();
     return this.status();
   }
 
@@ -148,6 +179,16 @@ class TradingEngine {
     this.executionMode = 'none';
     this.accountBalance = 0;
     this.accountEquity = 0;
+    this.marginFree = 0;
+    this.marginUsed = 0;
+    this.marginLevel = null;
+    this.accountSynced = false;
+    this.accountSyncAt = null;
+    this.accountSyncError = null;
+    this.positionSyncAt = null;
+    this.positionSyncError = null;
+    this.brokerPositions = 0;
+    this._lastTradeAt.clear();
     await this.db.addLog('info', 'broker', 'Account disconnected');
     return { ok: true };
   }
@@ -155,6 +196,8 @@ class TradingEngine {
   async start() {
     if (!this.account || !this.broker) throw new Error('Connect a demo account first');
     if (this.emergency) throw new Error('Emergency stop is active; reconnect the account to resume');
+    await this.syncAccount();
+    if (!this.accountSynced) throw new Error('Account sync failed; trading cannot start');
     this.running = true;
     this._started = true;
     await this.db.addLog('info', 'engine', 'Bot started');
@@ -200,7 +243,8 @@ class TradingEngine {
         this.lastError = String(err.message).slice(0, 300);
         await this.db.addLog('error', 'engine', `Cycle failed: ${err.message}`).catch(() => {});
       }
-      if (this.running) this._schedule(config.SCAN_INTERVAL_SECONDS * 1000);
+      if (this.running) this._schedule(this._nextDelayMs || config.SCAN_INTERVAL_SECONDS * 1000);
+      this._nextDelayMs = null;
     }, delay);
   }
 
@@ -217,19 +261,48 @@ class TradingEngine {
     }
   }
 
+  accountFresh(maxAge = config.MT5_ACCOUNT_SYNC_MAX_AGE_SECONDS) {
+    if (!this.accountSynced || !this.accountSyncAt) return false;
+    return (Date.now() - new Date(this.accountSyncAt).getTime()) / 1000 <= Number(maxAge);
+  }
+
   async syncAccount() {
     if (!this.broker || !this.account) return;
     try {
       const info = await this.broker.accountInfo();
-      this.accountBalance = Number(info.balance || 0);
-      this.accountEquity = Number(info.equity || info.balance || 0);
+      const balance = Number(info.balance);
+      const equity = Number(info.equity);
+      if (!Number.isFinite(balance) || !Number.isFinite(equity)) {
+        throw new Error('broker returned an invalid account snapshot');
+      }
+      this.accountBalance = balance;
+      this.accountEquity = equity;
+      this.marginFree = Number(info.margin_free || 0);
+      this.marginUsed = Number(info.margin_used || 0);
+      this.marginLevel = info.margin_level === null || info.margin_level === undefined
+        ? null : Number(info.margin_level);
       this.accountCurrency = info.currency || 'USD';
-      await this.db.setAccountStatus(this.account.id, 'connected', this.accountBalance);
+      this.accountSynced = true;
+      this.accountSyncAt = info.synced_at || utcnow();
+      this.accountSyncError = null;
+      await this.db.setAccountSync(this.account.id, {
+        status: 'connected', balance: this.accountBalance, equity: this.accountEquity,
+        margin_free: this.marginFree, margin_used: this.marginUsed, margin_level: this.marginLevel,
+        currency: this.accountCurrency, synced_at: this.accountSyncAt,
+      });
       this.account.balance = this.accountBalance;
       this.account.equity = this.accountEquity;
+      this.account.margin_free = this.marginFree;
+      this.account.margin_used = this.marginUsed;
+      this.account.margin_level = this.marginLevel;
+      this.account.synced_at = this.accountSyncAt;
     } catch (err) {
-      this.lastError = `Account sync: ${err.message}`.slice(0, 300);
-      await this.db.addLog('warn', 'broker', this.lastError);
+      this.accountSynced = false;
+      this.accountSyncError = String(err.message).slice(0, 300);
+      this.lastError = `Account sync: ${this.accountSyncError}`.slice(0, 300);
+      if (this.broker) this.broker.connected = false;
+      await this.db.setAccountStatus(this.account.id, 'disconnected').catch(() => {});
+      await this.db.addLog('warn', 'broker', this.lastError).catch(() => {});
     }
   }
 
@@ -262,6 +335,17 @@ class TradingEngine {
     return {
       account_login: this.account ? this.account.login : '',
       account_type: this.accountType,
+      account_synced: this.accountSynced,
+      account_data_fresh: this.accountFresh(),
+      account_sync_at: this.accountSyncAt,
+      account_sync_error: this.accountSyncError,
+      account_status: this.accountSynced ? 'connected' : 'disconnected',
+      margin_free: this.marginFree,
+      margin_used: this.marginUsed,
+      margin_level: this.marginLevel,
+      position_sync_at: this.positionSyncAt,
+      position_sync_error: this.positionSyncError,
+      broker_positions: this.brokerPositions,
       ai_enabled: this.analyzer.enabled,
       balance,
       equity: this.accountEquity || balance,
@@ -287,8 +371,144 @@ class TradingEngine {
     };
   }
 
+  async syncBrokerTrades() {
+    if (!this.account || !this.broker || !this.broker.supportsPositions) return;
+    this._lastPositionNotice = this._lastPositionNotice || new Map();
+    let positions;
+    try {
+      positions = await this.broker.positions();
+    } catch (err) {
+      this.positionSyncError = String(err.message).slice(0, 300);
+      this.lastError = `Position sync: ${this.positionSyncError}`.slice(0, 300);
+      await this.db.addLog('warn', 'broker', this.lastError);
+      return;
+    }
+    this.positionSyncError = null;
+    this.positionSyncAt = utcnow();
+    this.brokerPositions = positions.length;
+    const openTrades = await this.db.openTrades(this.account.id);
+    const byTicket = new Map(openTrades.filter((t) => t.broker_order_id).map((t) => [String(t.broker_order_id), t]));
+
+    for (const position of positions) {
+      const trade = byTicket.get(position.ticket);
+      if (trade) {
+        await this.db.updateTradeLive(trade.id, position.current_price, position.pnl);
+        const stopsChanged = (position.stop_loss > 0 && Number(position.stop_loss) !== Number(trade.stop_loss)) ||
+          (position.take_profit > 0 && Number(position.take_profit) !== Number(trade.take_profit));
+        if (stopsChanged) {
+          await this.db.updateTradeStops(
+            trade.id,
+            position.stop_loss > 0 ? position.stop_loss : trade.stop_loss,
+            position.take_profit > 0 ? position.take_profit : trade.take_profit,
+          );
+        }
+        const fingerprint = `${position.stop_loss}|${position.take_profit}`;
+        if (stopsChanged && this._lastPositionNotice.get(position.ticket) !== fingerprint && this.telegram.enabled) {
+          this._lastPositionNotice.set(position.ticket, fingerprint);
+          const sent = await this.telegram.notifyUpdate(trade, {
+            current_price: position.current_price, stop_loss: position.stop_loss,
+            take_profit: position.take_profit, unrealized_pnl: position.pnl,
+          });
+          if (!sent.ok) await this.db.addLog('warn', 'telegram', `Update notification failed: ${sent.error}`);
+        }
+        continue;
+      }
+
+      const duplicate = await this.db.tradeByBrokerOrder(this.account.id, position.ticket);
+      if (duplicate) {
+        if (duplicate.status === 'OPEN') continue;
+        await this.db.addLog('warn', 'broker', `Ticket ${position.ticket} is already closed on the site`);
+        continue;
+      }
+
+      let chartPath = '';
+      try {
+        const snap = await this.market.get(position.symbol, 'M15', 120);
+        chartPath = await renderTradeChart({
+          symbol: position.symbol, timeframe: 'M15', side: position.side,
+          candles: snap.candles.slice(-90), entry: position.entry_price,
+          stopLoss: position.stop_loss, takeProfit: position.take_profit,
+          outputDir: this.chartDir,
+        });
+      } catch (err) {
+        await this.db.addLog('warn', 'chart', `Imported trade chart failed: ${err.message}`);
+      }
+      const imported = await this.db.createTrade({
+        account_id: this.account.id,
+        platform: this.platform,
+        symbol: position.symbol,
+        timeframe: 'M15',
+        side: position.side,
+        entry_price: position.entry_price,
+        stop_loss: position.stop_loss,
+        take_profit: position.take_profit,
+        lot: position.lot,
+        risk_amount: 0,
+        confidence: null,
+        reason: 'Imported from an existing MetaTrader 5 position',
+        status: 'OPEN',
+        broker_order_id: position.ticket,
+        opened_at: position.opened_at || utcnow(),
+        chart_path: chartPath,
+      });
+      await this.db.updateTradeLive(imported.id, position.current_price, position.pnl);
+      await this.db.addLog('info', 'broker', `Imported MT5 ticket ${position.ticket} ${position.symbol}`, {
+        side: position.side, lot: position.lot, source: 'mt5',
+      });
+      if (this.telegram.enabled) {
+        const sent = await this.telegram.notifyImported({ ...imported, account_type: this.accountType }, chartPath);
+        if (!sent.ok) await this.db.addLog('warn', 'telegram', `Import notification failed: ${sent.error}`);
+      }
+    }
+
+    const ticketSet = new Set(positions.map((p) => p.ticket));
+    for (const trade of openTrades) {
+      if (!trade.broker_order_id || ticketSet.has(String(trade.broker_order_id))) continue;
+      let closed;
+      try {
+        closed = await this.broker.history(trade.broker_order_id);
+      } catch (err) {
+        await this.db.addLog('warn', 'broker', `History lookup failed for ${trade.broker_order_id}: ${err.message}`);
+        continue;
+      }
+      if (!closed || !(closed.close_price > 0)) {
+        await this.db.addLog('warn', 'broker', `Ticket ${trade.broker_order_id} missing from MT5 positions and history; left open`);
+        continue;
+      }
+      const pnl = Number(closed.pnl || 0);
+      const resultTag = pnl >= 0 ? 'WIN' : 'LOSS';
+      const closedTrade = await this.db.closeTrade(trade.id, closed.close_price, pnl, resultTag);
+      let snap = null;
+      try { snap = await this.market.get(trade.symbol, 'M5', 180); } catch { /* chart is optional */ }
+      let chartPath = '';
+      if (snap) {
+        try {
+          chartPath = await renderResultChart({
+            symbol: trade.symbol, timeframe: trade.timeframe, side: trade.side,
+            candles: snap.candles.slice(-90), entry: trade.entry_price,
+            stopLoss: trade.stop_loss, takeProfit: trade.take_profit,
+            exitPrice: closed.close_price, pnl, result: resultTag, outputDir: this.chartDir,
+          });
+        } catch (err) {
+          await this.db.addLog('warn', 'chart', `Result chart failed: ${err.message}`);
+        }
+      }
+      await this.db.addLog('info', 'trade', `MT5 closed ${trade.symbol} ${resultTag} ${pnl}`, {
+        ticket: trade.broker_order_id, exit: closed.close_price,
+      });
+      if (this.telegram.enabled) {
+        const sent = await this.telegram.notifyClose({ ...closedTrade, account_type: this.accountType }, chartPath);
+        if (!sent.ok) await this.db.addLog('warn', 'telegram', `Close notification failed: ${sent.error}`);
+      }
+      this.opportunities = this.opportunities.filter((o) => o.symbol !== trade.symbol);
+    }
+    await this.syncAccount();
+  }
+
   async processOpenTrades() {
     if (!this.account || !this.broker) return;
+    // MT5 closes are driven by the terminal and reconciled from positions/history.
+    if (this.broker.supportsPositions) return;
     const trades = await this.db.openTrades(this.account.id);
     for (const trade of trades) {
       let snap;
@@ -380,6 +600,11 @@ class TradingEngine {
 
   async scanAndTrade() {
     if (!this.account || !this.broker) return;
+    if (!this.accountFresh()) {
+      this.lastError = 'Account sync is stale; no new trades are allowed';
+      await this.db.addLog('warn', 'risk', this.lastError);
+      return;
+    }
     const candidates = [];
     const errors = [];
     let fetched = 0;
@@ -407,6 +632,7 @@ class TradingEngine {
 
     if (!candidates.length || !this.running || this.emergency) return;
     candidates.sort((a, b) => b.signal.confidence - a.signal.confidence);
+    this._nextDelayMs = 10000;
 
     const open = await this.db.openTrades(this.account.id);
     const today = await this.db.tradesToday(this.account.id);
@@ -426,6 +652,9 @@ class TradingEngine {
         spreadPips,
         dataFresh: true,
         connected: Boolean(this.broker.connected),
+        accountSynced: this.accountFresh(),
+        freeMargin: this.marginFree,
+        marginLevel: this.marginLevel,
         emergencyStop: this.emergency,
         running: this.running,
       });
@@ -439,7 +668,12 @@ class TradingEngine {
         const review = await this.analyzer.review(signal, {
           spread_pips: spreadPips,
           atr: signal.atr,
-          checks: signal.checks,
+          balance: this.accountBalance,
+          free_margin: this.marginFree,
+          margin_level: this.marginLevel,
+          open_trades: open.length,
+          today_trades: today.length,
+          today_pnl: todayPnl,
         });
         await this.db.addLog('info', 'ai', `Gemini ${review.verdict}: ${review.rationale}`);
         if (review.verdict === 'REJECT') {
@@ -473,6 +707,15 @@ class TradingEngine {
 
   async executeTrade({ signal, snaps, decision, spreadPips }) {
     if (!this.account || !this.broker) return null;
+    if (!this.accountFresh()) {
+      await this.db.addLog('warn', 'trade', 'Order blocked: account snapshot is stale');
+      return null;
+    }
+    const lastAt = this._lastTradeAt.get(signal.symbol) || 0;
+    if (Date.now() - lastAt < config.TRADE_REENTRY_COOLDOWN_SECONDS * 1000) {
+      await this.db.addLog('warn', 'trade', `Re-entry cooldown active for ${signal.symbol}`);
+      return null;
+    }
     const fresh = await this.db.openTrades(this.account.id);
     if (fresh.some((t) => t.symbol === signal.symbol)) {
       await this.db.addLog('warn', 'trade', `Duplicate blocked for ${signal.symbol}`);
@@ -493,8 +736,25 @@ class TradingEngine {
       await this.db.addLog('warn', 'trade', `Broker rejected ${signal.symbol}: ${order.message}`);
       return null;
     }
-
+    if (!order.order_id) {
+      await this.db.addLog('error', 'trade', `Broker accepted ${signal.symbol} without a ticket; trade not recorded`);
+      return null;
+    }
+    if (this.broker.supportsPositions) {
+      const verified = await this.broker.verifyPosition(order.order_id);
+      if (!verified) {
+        this.lastError = `MT5 did not confirm ticket ${order.order_id}; trade not recorded`;
+        await this.db.addLog('error', 'trade', this.lastError);
+        return null;
+      }
+    }
+    const duplicateTicket = await this.db.tradeByBrokerOrder(this.account.id, order.order_id);
+    if (duplicateTicket) {
+      await this.db.addLog('warn', 'trade', `Duplicate ticket blocked: ${order.order_id}`);
+      return null;
+    }
     const entryPrice = Number(order.fill_price || signal.entry);
+    this._lastTradeAt.set(signal.symbol, Date.now());
     let chartPath = '';
     try {
       chartPath = await renderTradeChart({
@@ -534,6 +794,7 @@ class TradingEngine {
       if (!sent.ok) await this.db.addLog('warn', 'telegram', `Open notification failed: ${sent.error}`);
     }
     await this.syncAccount();
+    if (this.broker.supportsPositions) await this.syncBrokerTrades();
     return trade;
   }
 

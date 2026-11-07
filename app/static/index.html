@@ -79,7 +79,7 @@
           <span class="account-badge demo" data-i18n="account.demoBadge">مفعّل</span>
           <strong data-i18n="account.demo">حساب تجريبي</strong>
           <small data-i18n="account.demoSub">تنفيذ محاكى بأسعار سوق حقيقية</small>
-          <span class="balance-hint">$10,000</span>
+          <span class="balance-hint" data-i18n="account.demoBalance">الرصيد من الحساب الحقيقي</span>
         </button>
         <button class="choice-card account-card locked" data-account-type="real" type="button" disabled>
           <span class="account-badge real" data-i18n="account.realBadge">مقفل</span>
@@ -156,6 +156,12 @@
           <span class="balance-value" id="balance-value">$0.00</span>
           <span class="balance-cur" id="balance-cur">USD</span>
         </div>
+        <div class="account-metrics">
+          <div><span data-i18n="dash.equity">الأسهم (Equity)</span><strong id="equity-value">—</strong></div>
+          <div><span data-i18n="dash.freeMargin">الهامش الحر</span><strong id="free-margin">—</strong></div>
+          <div><span data-i18n="dash.usedMargin">الهامش المستخدم</span><strong id="used-margin">—</strong></div>
+          <div><span data-i18n="dash.marginLevel">مستوى الهامش</span><strong id="margin-level">—</strong></div>
+        </div>
         <div class="hero-stats">
           <div><span data-i18n="dash.todayPnl">ربح/خسارة اليوم</span><strong id="today-pnl">$0.00</strong></div>
           <div><span data-i18n="dash.openTrades">صفقات مفتوحة</span><strong id="open-count">0</strong></div>
@@ -163,6 +169,8 @@
         </div>
         <div class="hero-foot">
           <span id="account-label">—</span>
+          <span id="sync-state">—</span>
+          <button class="text-btn light" id="sync-account" type="button" data-i18n="dash.syncNow">تحديث</button>
           <span id="last-scan">—</span>
         </div>
       </section>

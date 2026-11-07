@@ -24,6 +24,10 @@ const SQLITE_SCHEMA = [
     status TEXT NOT NULL DEFAULT 'disconnected',
     balance REAL NOT NULL DEFAULT 0,
     equity REAL NOT NULL DEFAULT 0,
+    margin_free REAL NOT NULL DEFAULT 0,
+    margin_used REAL NOT NULL DEFAULT 0,
+    margin_level REAL,
+    synced_at TEXT,
     currency TEXT NOT NULL DEFAULT 'USD',
     connected_at TEXT,
     created_at TEXT NOT NULL,
@@ -50,10 +54,13 @@ const SQLITE_SCHEMA = [
     close_price REAL,
     pnl REAL,
     result TEXT,
-    chart_path TEXT
+    chart_path TEXT,
+    current_price REAL,
+    unrealized_pnl REAL
   )`,
   'CREATE INDEX IF NOT EXISTS idx_trades_status ON trades(status)',
   'CREATE INDEX IF NOT EXISTS idx_trades_opened ON trades(opened_at)',
+  "CREATE UNIQUE INDEX IF NOT EXISTS idx_trades_broker_order ON trades(account_id, broker_order_id) WHERE broker_order_id <> ''",
   `CREATE TABLE IF NOT EXISTS logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     level TEXT NOT NULL,
@@ -76,6 +83,10 @@ const PG_SCHEMA = [
     status TEXT NOT NULL DEFAULT 'disconnected',
     balance DOUBLE PRECISION NOT NULL DEFAULT 0,
     equity DOUBLE PRECISION NOT NULL DEFAULT 0,
+    margin_free DOUBLE PRECISION NOT NULL DEFAULT 0,
+    margin_used DOUBLE PRECISION NOT NULL DEFAULT 0,
+    margin_level DOUBLE PRECISION,
+    synced_at TEXT,
     currency TEXT NOT NULL DEFAULT 'USD',
     connected_at TEXT,
     created_at TEXT NOT NULL,
@@ -102,10 +113,13 @@ const PG_SCHEMA = [
     close_price DOUBLE PRECISION,
     pnl DOUBLE PRECISION,
     result TEXT,
-    chart_path TEXT
+    chart_path TEXT,
+    current_price REAL,
+    unrealized_pnl REAL
   )`,
   'CREATE INDEX IF NOT EXISTS idx_trades_status ON trades(status)',
   'CREATE INDEX IF NOT EXISTS idx_trades_opened ON trades(opened_at)',
+  "CREATE UNIQUE INDEX IF NOT EXISTS idx_trades_broker_order ON trades(account_id, broker_order_id) WHERE broker_order_id <> ''",
   `CREATE TABLE IF NOT EXISTS logs (
     id BIGSERIAL PRIMARY KEY,
     level TEXT NOT NULL,
@@ -125,8 +139,9 @@ function toPgPlaceholders(sql) {
 function normalizeRow(row) {
   if (!row) return null;
   const out = { ...row };
-  for (const key of ['balance', 'equity', 'entry_price', 'stop_loss', 'take_profit', 'lot',
-    'risk_amount', 'confidence', 'close_price', 'pnl']) {
+  for (const key of ['balance', 'equity', 'margin_free', 'margin_used', 'margin_level',
+    'entry_price', 'stop_loss', 'take_profit', 'lot', 'risk_amount', 'confidence',
+    'close_price', 'pnl', 'current_price', 'unrealized_pnl']) {
     if (out[key] !== null && out[key] !== undefined) out[key] = Number(out[key]);
   }
   if (out.id !== null && out.id !== undefined) out.id = String(out.id);
@@ -153,13 +168,40 @@ class Database {
         max: 8,
       });
       for (const statement of PG_SCHEMA) await this.pool.query(statement);
+      const pgAdditions = [
+        'ALTER TABLE accounts ADD COLUMN IF NOT EXISTS margin_free DOUBLE PRECISION NOT NULL DEFAULT 0',
+        'ALTER TABLE accounts ADD COLUMN IF NOT EXISTS margin_used DOUBLE PRECISION NOT NULL DEFAULT 0',
+        'ALTER TABLE accounts ADD COLUMN IF NOT EXISTS margin_level DOUBLE PRECISION',
+        'ALTER TABLE accounts ADD COLUMN IF NOT EXISTS synced_at TEXT',
+        'ALTER TABLE trades ADD COLUMN IF NOT EXISTS current_price DOUBLE PRECISION',
+        'ALTER TABLE trades ADD COLUMN IF NOT EXISTS unrealized_pnl DOUBLE PRECISION',
+      ];
+      for (const statement of pgAdditions) await this.pool.query(statement);
     } else {
       const BetterSqlite3 = require('better-sqlite3');
       this.sqlite = new BetterSqlite3(this.path);
       this.sqlite.pragma('journal_mode = WAL');
       for (const statement of SQLITE_SCHEMA) this.sqlite.exec(statement);
+      this.migrateSqlite();
     }
     return this;
+  }
+
+  migrateSqlite() {
+    const columns = (table) => this.sqlite.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
+    const accounts = columns('accounts');
+    const tradeColumns = columns('trades');
+    const additions = [
+      ['accounts', 'margin_free', 'REAL NOT NULL DEFAULT 0', accounts],
+      ['accounts', 'margin_used', 'REAL NOT NULL DEFAULT 0', accounts],
+      ['accounts', 'margin_level', 'REAL', accounts],
+      ['accounts', 'synced_at', 'TEXT', accounts],
+      ['trades', 'current_price', 'REAL', tradeColumns],
+      ['trades', 'unrealized_pnl', 'REAL', tradeColumns],
+    ];
+    for (const [table, name, type, existing] of additions) {
+      if (!existing.includes(name)) this.sqlite.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${type}`);
+    }
   }
 
   async close() {
@@ -223,6 +265,20 @@ class Database {
     return rows[0] || null;
   }
 
+  async setAccountSync(accountId, snapshot = {}) {
+    await this.run(
+      'UPDATE accounts SET status=?, balance=?, equity=?, margin_free=?, margin_used=?, ' +
+      'margin_level=?, currency=COALESCE(?, currency), synced_at=?, updated_at=? WHERE id=?',
+      [
+        snapshot.status || 'connected', Number(snapshot.balance || 0), Number(snapshot.equity || 0),
+        Number(snapshot.margin_free || 0), Number(snapshot.margin_used || 0),
+        snapshot.margin_level === null || snapshot.margin_level === undefined ? null : Number(snapshot.margin_level),
+        snapshot.currency || null, snapshot.synced_at || utcnow(), utcnow(), accountId,
+      ],
+    );
+    return this.getAccount(accountId);
+  }
+
   async setAccountStatus(accountId, status, balance = null) {
     if (balance === null || balance === undefined) {
       await this.run('UPDATE accounts SET status=?, updated_at=? WHERE id=?', [status, utcnow(), accountId]);
@@ -258,6 +314,35 @@ class Database {
 
   async updateTradeChart(tradeId, chartPath) {
     await this.run('UPDATE trades SET chart_path=? WHERE id=?', [chartPath, tradeId]);
+  }
+
+  async findOpenTradeByBrokerOrder(accountId, brokerOrderId) {
+    if (!brokerOrderId) return null;
+    const rows = await this.all(
+      "SELECT * FROM trades WHERE account_id=? AND broker_order_id=? AND status='OPEN' LIMIT 1",
+      [accountId, String(brokerOrderId)],
+    );
+    return rows[0] || null;
+  }
+
+  async tradeByBrokerOrder(accountId, brokerOrderId) {
+    if (!brokerOrderId) return null;
+    const rows = await this.all(
+      'SELECT * FROM trades WHERE account_id=? AND broker_order_id=? LIMIT 1',
+      [accountId, String(brokerOrderId)],
+    );
+    return rows[0] || null;
+  }
+
+  async updateTradeLive(tradeId, currentPrice, unrealizedPnl) {
+    await this.run(
+      'UPDATE trades SET current_price=?, unrealized_pnl=? WHERE id=? AND status=\'OPEN\'',
+      [Number(currentPrice || 0), Number(unrealizedPnl || 0), tradeId],
+    );
+  }
+
+  async updateTradeStops(tradeId, stopLoss, takeProfit) {
+    await this.run('UPDATE trades SET stop_loss=?, take_profit=? WHERE id=?', [stopLoss, takeProfit, tradeId]);
   }
 
   async closeTrade(tradeId, closePrice, pnl, result) {

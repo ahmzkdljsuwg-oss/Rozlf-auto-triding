@@ -167,8 +167,17 @@
     pnlEl.textContent = fmtMoney(s.today_pnl, s.currency);
     pnlEl.className = s.today_pnl > 0 ? "pos" : s.today_pnl < 0 ? "neg" : "";
 
-    $("#balance-value").textContent = fmtMoney(s.balance, s.currency);
+    const accountLive = Boolean(s.account_synced && s.broker_connected);
+    $("#balance-value").textContent = accountLive ? fmtMoney(s.balance, s.currency) : "—";
     $("#balance-cur").textContent = s.currency || "USD";
+    $("#equity-value").textContent = accountLive ? fmtMoney(s.equity, s.currency) : "—";
+    $("#free-margin").textContent = accountLive ? fmtMoney(s.margin_free, s.currency) : "—";
+    $("#used-margin").textContent = accountLive ? fmtMoney(s.margin_used, s.currency) : "—";
+    $("#margin-level").textContent = accountLive && s.margin_level !== null
+      ? Number(s.margin_level).toFixed(1) + "%" : "—";
+    $("#sync-state").textContent = accountLive
+      ? (s.account_sync_at ? t("dash.syncedAt") + ": " + fmtTime(s.account_sync_at) : t("dash.neverSynced"))
+      : (s.account_sync_error || t("dash.accountDisconnected"));
     $("#open-count").textContent = s.open_trades.length;
     $("#daily-count").textContent = s.today_trades;
 
@@ -180,7 +189,7 @@
       : t("status.never");
 
     const pill = $("#conn-pill");
-    const ok = s.broker_connected && s.market_connected;
+    const ok = s.broker_connected && s.account_synced;
     pill.className = "status-pill " + (ok ? "ok" : "bad");
     pill.innerHTML = "<i></i><span>" + (ok ? t("dash.marketOk") : t("status.disconnected")) + "</span>";
 
@@ -260,6 +269,11 @@
         "<div><span>" + t("trade.lot") + "</span><strong>" + Number(tr.lot).toFixed(2) + "</strong></div>" +
         "<div><span>" + t("trade.open") + "</span><strong>" + fmtTime(tr.opened_at) + "</strong></div>" +
         "<div><span>R:R</span><strong>" + rr(tr) + "</strong></div>" +
+        "<div><span>" + t("trade.current") + "</span><strong>" + (tr.current_price ? fmtPrice(tr.current_price) : "—") + "</strong></div>" +
+        "<div><span>" + t("trade.floating") + "</span><strong class=\"" +
+          (Number(tr.unrealized_pnl || 0) > 0 ? "pos" : Number(tr.unrealized_pnl || 0) < 0 ? "neg" : "") + "\">" +
+          (tr.unrealized_pnl === null || tr.unrealized_pnl === undefined ? "—" : fmtMoney(tr.unrealized_pnl, state.status ? state.status.currency : "USD")) +
+        "</strong></div>" +
         "</div>" + (chart ? '<div style="margin-top:8px">' + chart + "</div>" : "") +
         "</div>";
     }).join("");
@@ -426,6 +440,23 @@
     }
   }
 
+  async function syncAccount() {
+    const btn = $("#sync-account");
+    if (btn) btn.disabled = true;
+    try {
+      const s = await api("/account/sync", { method: "POST" });
+      state.status = s;
+      renderStatus(s);
+      await loadHistory();
+      toast(t("toast.synced"), "success");
+    } catch (err) {
+      toast(err.message, "error");
+      await refreshStatus().catch(() => {});
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+
   async function logout() {
     if (!window.confirm("Disconnect account?")) return;
     try { await api("/disconnect", { method: "POST" }); } catch (err) { /* ignore */ }
@@ -458,6 +489,7 @@
     $("#toggle-bot").addEventListener("click", toggleBot);
     $("#emergency-btn").addEventListener("click", emergency);
     $("#open-risk").addEventListener("click", openRisk);
+    $("#sync-account").addEventListener("click", syncAccount);
     $("#risk-form").addEventListener("submit", saveRisk);
     $("#open-logs").addEventListener("click", openLogs);
     $("#refresh-history").addEventListener("click", loadHistory);

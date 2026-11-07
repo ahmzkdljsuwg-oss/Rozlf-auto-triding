@@ -47,7 +47,9 @@ class PaperBroker {
   async accountInfo() {
     return accountInfo({
       login: this.login, server: this.server, balance: this.balance, equity: this.equity,
+      margin_free: this.equity, margin_used: 0, margin_level: null,
       currency: this.currency, leverage: 100, broker: 'ROZLF Paper', is_demo: true,
+      synced_at: new Date().toISOString(),
     });
   }
 

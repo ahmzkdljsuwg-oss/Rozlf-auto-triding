@@ -31,7 +31,7 @@ const config = {
   DATA_DIR,
   CHART_DIR,
   APP_NAME: 'ROZLF AUTO TRADER',
-  APP_VERSION: '2.0.0',
+  APP_VERSION: '2.1.0',
   PORT: Number(env('PORT', 8000)),
 
   SECRET_KEY: env('APP_SECRET_KEY', ''),
@@ -44,13 +44,18 @@ const config = {
   TELEGRAM_BOT_TOKEN: env('TELEGRAM_BOT_TOKEN', ''),
   TELEGRAM_CHAT_ID: env('TELEGRAM_CHAT_ID', ''),
 
-  REAL_TRADING_APPROVED: bool('REAL_TRADING_APPROVED', false),
+  // Two names are accepted so an older Render service keeps working; both
+  // default to false and neither enables live trading on its own.
+  REAL_TRADING_APPROVED: bool('REAL_TRADING_APPROVED', false) || bool('ENABLE_REAL_TRADING', false),
   MT5_ENABLED: bool('MT5_ENABLED', false),
   MT5_BRIDGE_URL: env('MT5_BRIDGE_URL', ''),
-  MT5_BRIDGE_TOKEN: env('MT5_BRIDGE_TOKEN', ''),
+  MT5_BRIDGE_TOKEN: env('MT5_BRIDGE_TOKEN', env('MT5_BRIDGE_API_KEY', '')),
+  MT5_BRIDGE_SECRET: env('MT5_BRIDGE_SECRET', ''),
   MT5_BRIDGE_TIMEOUT_MS: num('MT5_BRIDGE_TIMEOUT_MS', 15000),
+  MT5_ACCOUNT_SYNC_MAX_AGE_SECONDS: Math.max(5, num('MT5_ACCOUNT_SYNC_MAX_AGE_SECONDS', 30)),
+  TRADE_REENTRY_COOLDOWN_SECONDS: Math.max(0, num('TRADE_REENTRY_COOLDOWN_SECONDS', 300)),
 
-  SCAN_INTERVAL_SECONDS: Math.max(15, num('SCAN_INTERVAL_SECONDS', 60)),
+  SCAN_INTERVAL_SECONDS: Math.max(5, num('SCAN_INTERVAL_SECONDS', 30)),
   SYMBOLS: env('SYMBOLS', 'EURUSD,GBPUSD,USDJPY,AUDUSD,USDCAD,NZDUSD,XAUUSD')
     .split(',').map((s) => s.trim().toUpperCase()).filter(Boolean),
   TIMEFRAMES: env('TIMEFRAMES', 'M5,M15,H1,H4,D1')

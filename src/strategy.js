@@ -191,9 +191,18 @@ function buildSignal(symbol, timeframe, snaps) {
     direction = -1; raw = bearScore; notesFor = bearNotes; notesAgainst = bearAgainst;
   }
 
-  const conflict = Math.abs(bullScore - bearScore) < 0.12;
+  let conflict = Math.abs(bullScore - bearScore) < 0.12;
   let confidence = clamp(0.5 + raw * 0.55, 0, 0.98);
   if (conflict) confidence *= 0.8;
+
+  const higherTrends = [inds.D1?.trend, inds.H1?.trend];
+  const againstHigher = direction > 0
+    ? higherTrends.includes('bearish')
+    : higherTrends.includes('bullish');
+  if (againstHigher) {
+    conflict = true;
+    confidence *= 0.65;
+  }
 
   const checks = {
     adx: round(finite(adxVal), 2),
@@ -206,9 +215,14 @@ function buildSignal(symbol, timeframe, snaps) {
     notes_against: notesAgainst.slice(0, 4),
   };
 
+  const recent15 = snaps.M15.candles.slice(-40);
+  const supportLevel = Math.min(...recent15.map((c) => c.low));
+  const resistanceLevel = Math.max(...recent15.map((c) => c.high));
   const analysis = {
     indicators: {},
     structure: structures,
+    support: round(supportLevel, 6),
+    resistance: round(resistanceLevel, 6),
     timestamps: {},
   };
   for (const tf of Object.keys(inds)) {
@@ -226,8 +240,12 @@ function buildSignal(symbol, timeframe, snaps) {
   if (confidence < config.DEFAULT_MIN_CONFIDENCE || conflict || (adxVal && adxVal < 14)) {
     return noTrade(
       symbol, timeframe, round(confidence, 3),
-      `No qualified setup: ${notesFor.slice(0, 3).join('/') || 'insufficient confluence'}`,
-      'لا توجد فرصة مؤهلة: تقارب المؤشرات غير كافٍ',
+      againstHigher
+        ? 'No trade: higher-timeframe trend opposes the setup'
+        : `No qualified setup: ${notesFor.slice(0, 3).join('/') || 'insufficient confluence'}`,
+      againstHigher
+        ? 'لا توجد صفقة: اتجاه الإطار الزمني الأعلى يعارض الإشارة'
+        : 'لا توجد فرصة مؤهلة: تقارب المؤشرات غير كافٍ',
       { atr: round(atr, 6), score: round(Math.max(bullScore, bearScore), 3), checks, analysis },
     );
   }
@@ -270,6 +288,9 @@ function buildSignal(symbol, timeframe, snaps) {
     reason_en: reasonEn,
     reason_ar: reasonAr,
     score: round(raw, 3),
+    support: analysis.support,
+    resistance: analysis.resistance,
+    structure: structures,
     checks,
     analysis,
   };
