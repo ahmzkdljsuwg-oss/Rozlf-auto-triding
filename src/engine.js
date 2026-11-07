@@ -11,7 +11,7 @@ const { PaperBroker } = require('./brokers/paper');
 const { MT5Broker } = require('./brokers/mt5');
 const { ExpertOptionBroker } = require('./brokers/expertoption');
 const { ExpertOptionSession, SOURCE_REASON_EN, SOURCE_REASON_AR, GATEWAY_REASON_EN, GATEWAY_REASON_AR } = require('./expertoption-session');
-const { describeAssets, analyzeAsset, EXPIRY_KEYS, ASSET_KEYS } = require('./expertoption-analysis');
+const { describeAssets, analyzeAsset, resolveInstrument, EXPIRY_KEYS, ASSET_KEYS } = require('./expertoption-analysis');
 const { RozlfAnalyzer } = require('./ai');
 const { TelegramNotifier } = require('./telegram');
 const { renderTradeChart, renderResultChart } = require('./charts');
@@ -233,9 +233,9 @@ class TradingEngine {
       this.account = await this.db.getAccount(accountRow.id);
       this.expertOptionSession = new ExpertOptionSession({
         login,
-        tokenPresent: Boolean(secret || config.EXPERTOPTION_SESSION_COOKIE || config.EXPERTOPTION_API_KEY),
+        tokenPresent: Boolean(secret || config.EXPERTOPTION_SESSION_TOKEN),
         accountType,
-        token: config.EXPERTOPTION_API_KEY || sessionToken || '',
+        token: sessionToken || config.EXPERTOPTION_SESSION_TOKEN || '',
       });
       this.broker = null;
       this.executionMode = 'analysis_only';
@@ -253,8 +253,8 @@ class TradingEngine {
       this.accountSynced = false;
       this.accountSyncAt = null;
       this.accountSyncError = this.expertOptionSession.configured
-        ? 'ExpertOption gateway configured; waiting for session verification.'
-        : 'ExpertOption session token stored but not verified: no authorized data gateway is configured.';
+        ? 'ExpertOption bridge configured; waiting for session verification.'
+        : 'No ExpertOption session token: open the bridge with the token from the connected account.';
       this.emergency = false;
       this.lastError = null;
       this.opportunities = [];
@@ -264,7 +264,7 @@ class TradingEngine {
       await this.db.addLog('info', 'broker', `ExpertOption token received for ${login}`, {
         mode: 'analysis_only',
         token_stored: Boolean(secret),
-        gateway_configured: this.expertOptionSession.configured,
+        bridge_configured: this.expertOptionSession.configured,
       });
       if (this.expertOptionSession.configured) {
         const verified = await this.expertOptionSession.verify();
@@ -635,13 +635,32 @@ class TradingEngine {
         available: assets.filter((a) => a.available).length,
         source_ready: true,
         listed: true,
-        source: { provider: 'ExpertOption authorized gateway', verified: true },
+        source: { provider: 'ExpertOption account session (ROZLF bridge)', verified: true },
       };
     } catch (err) {
       if (err.code === 'session_expired') {
         return { ok: false, detail: err.message, assets: describeAssets([]), source_ready: false, listed: false, reconnect_required: true };
       }
       return { ok: false, detail: String(err.message || 'تعذر قراءة قائمة الأصول'), assets: describeAssets([]), source_ready: false, listed: false };
+    }
+  }
+
+  async expertOptionQuote(assetKey, timeframe = 'M1') {
+    if (this.platform !== 'expertoption' || !this.expertOptionSession) {
+      return { ok: false, reason_code: 'no_session' };
+    }
+    if (!ASSET_KEYS.has(String(assetKey))) return { ok: false, reason_code: 'bad_asset' };
+    const session = this.expertOptionSession;
+    if (session.configured && !session.verified) await session.verify();
+    if (!session.verified) return { ok: false, reason_code: 'not_connected' };
+    try {
+      const instruments = await session.markets();
+      const resolved = resolveInstrument(instruments, String(assetKey));
+      if (!resolved) return { ok: false, reason_code: 'asset_not_found' };
+      const quote = await session.quote({ instrumentId: resolved.instrument.id, timeframe });
+      return { ok: true, ...quote, asset: resolved.instrument.name, instrument_id: resolved.instrument.id };
+    } catch (err) {
+      return { ok: false, reason_code: err.code || 'quote_failed', reason: String(err.message || 'quote failed').slice(0, 200) };
     }
   }
 

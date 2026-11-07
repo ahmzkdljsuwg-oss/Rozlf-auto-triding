@@ -52,6 +52,9 @@ const config = {
   // publishes no public API, so data access only works when an authorized
   // gateway implementing the documented contract is configured here. Leaving
   // these empty keeps the integration in its honest "not configured" state.
+  EXPERTOPTION_BRIDGE_URL: env('EXPERTOPTION_BRIDGE_URL', env('EXPERTOPTION_API_BASE_URL', '')),
+  EXPERTOPTION_BRIDGE_KEY: env('EXPERTOPTION_BRIDGE_KEY', env('EXPERTOPTION_API_KEY', '')),
+  EXPERTOPTION_SESSION_TOKEN: env('EXPERTOPTION_SESSION_TOKEN', ''),
   EXPERTOPTION_API_BASE_URL: env('EXPERTOPTION_API_BASE_URL', ''),
   EXPERTOPTION_API_KEY: env('EXPERTOPTION_API_KEY', ''),
   EXPERTOPTION_API_ACCOUNT: env('EXPERTOPTION_API_ACCOUNT', ''),

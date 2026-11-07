@@ -153,6 +153,7 @@ function createApp({ engine }) {
       detail: status.last_error || status.reason_en,
       connection_state: status.connection_state,
       gateway_configured: status.gateway_configured,
+      bridge_configured: status.bridge_configured,
       token_present: status.token_present,
       verified: false,
       official_api_available: false,
@@ -166,6 +167,17 @@ function createApp({ engine }) {
     }
     const result = await engine.expertOptionAssets();
     res.status(result.ok ? 200 : 409).json(result);
+  });
+
+  app.get('/api/expertoption/quote', async (req, res) => {
+    if (!engine.account || engine.platform !== 'expertoption') {
+      return fail(res, 409, 'اتصل بجلسة ExpertOption أولاً.');
+    }
+    const asset = String(req.query.asset || '');
+    if (!asset) return fail(res, 422, 'اختر أصلاً من قائمة ExpertOption.');
+    const timeframe = String(req.query.timeframe || 'M1').toUpperCase();
+    const result = await engine.expertOptionQuote(asset, timeframe);
+    res.status(result.ok ? 200 : 409).json({ ...result, execution_allowed: false });
   });
 
   app.post('/api/disconnect', async (req, res) => {

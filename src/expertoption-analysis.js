@@ -12,14 +12,22 @@
 const config = require('./config');
 const { analyzeCandles } = require('./indicators');
 const { analyzeStructure, findSwings } = require('./smc');
+const { TIMEFRAME_MS } = require('./expertoption-session');
 
-const EXPIRY_TIMEFRAME = {
-  '30s': 'M1',
-  '1m': 'M1',
-  '2m': 'M1',
-  '3m': 'M1',
-  '5m': 'M5',
+const EXPIRY_SECONDS = { '30s': 30, '1m': 60, '2m': 120, '3m': 180, '5m': 300 };
+
+// Candle size is chosen per expiry, preferring the finest candles the asset
+// actually publishes so an expiry always contains several candles.
+const EXPIRY_TIMEFRAME_CANDIDATES = {
+  '30s': ['S5', 'S15', 'S30', 'M1'],
+  '1m': ['S15', 'S30', 'M1'],
+  '2m': ['S30', 'M1'],
+  '3m': ['M1'],
+  '5m': ['M1', 'M5'],
 };
+const EXPIRY_TIMEFRAME = Object.fromEntries(
+  Object.entries(EXPIRY_TIMEFRAME_CANDIDATES).map(([key, list]) => [key, list[0]]),
+);
 
 const EXPIRY_LABELS = {
   '30s': { en: '30 seconds', ar: '30 ثانية' },
@@ -45,6 +53,19 @@ const REQUESTED_ASSETS = [
 
 const ASSET_KEYS = new Set(REQUESTED_ASSETS.map((a) => a.key));
 const EXPIRY_KEYS = new Set(Object.keys(EXPIRY_TIMEFRAME));
+
+function pickTimeframe(expiry, instrument) {
+  const candidates = EXPIRY_TIMEFRAME_CANDIDATES[expiry] || ['M1'];
+  const published = Array.isArray(instrument?.timeframes) ? instrument.timeframes : [];
+  if (published.length) {
+    for (const timeframe of candidates) {
+      const seconds = (TIMEFRAME_MS[timeframe] || 0) / 1000;
+      if (seconds && published.includes(seconds)) return { timeframe, source: 'asset_timeframes' };
+    }
+    return { timeframe: candidates[0], source: 'fallback' };
+  }
+  return { timeframe: candidates[0], source: 'default' };
+}
 
 function instrumentHaystack(instrument) {
   return `${instrument.name || ''} ${instrument.symbol || ''} ${instrument.id || ''}`;
@@ -76,6 +97,9 @@ function describeAssets(instruments) {
       name: resolved ? resolved.instrument.name : null,
       category: resolved ? resolved.instrument.category : null,
       otc: resolved ? resolved.instrument.otc : /otc/i.test(request.label_en),
+      active: resolved ? resolved.instrument.active !== false : false,
+      payout: resolved ? resolved.instrument.payout : null,
+      timeframes: resolved ? resolved.instrument.timeframes : [],
       resolved_by: resolved ? resolved.resolved_by : null,
     };
   });
@@ -165,7 +189,32 @@ async function analyzeAsset({
     });
   }
   const instrument = resolved.instrument;
-  const timeframe = EXPIRY_TIMEFRAME[expiry];
+  if (instrument.active === false) {
+    return fail('asset_inactive', 'The asset is not active on this account right now.', 'الأصل غير نشط في الحساب الآن.', { instrument });
+  }
+  const picked = pickTimeframe(expiry, instrument);
+  const timeframe = picked.timeframe;
+
+  const expiryCheck = { verified: false, supported: null, source: 'unavailable', available: null };
+  if (typeof session.expiries === 'function') {
+    try {
+      const supported = await session.expiries({ instrumentId: instrument.id, timeframe });
+      const list = Array.isArray(supported.expiries) ? supported.expiries : [];
+      expiryCheck.source = supported.source || 'session';
+      if (list.length) {
+        expiryCheck.verified = true;
+        expiryCheck.available = list;
+        expiryCheck.supported = list.includes(EXPIRY_SECONDS[expiry]);
+      }
+    } catch (err) {
+      expiryCheck.error = String(err.message || 'expiry lookup failed').slice(0, 160);
+    }
+  }
+  if (expiryCheck.verified && !expiryCheck.supported) {
+    return fail('expiry_unsupported', `This asset does not offer a ${EXPIRY_LABELS[expiry].en} expiry.`, `هذا الأصل لا يدعم مدة ${EXPIRY_LABELS[expiry].ar}.`, {
+      instrument, timeframe, expiry_check: expiryCheck,
+    });
+  }
 
   let candles;
   try {
@@ -189,6 +238,11 @@ async function analyzeAsset({
     return fail('stale_data', `Last candle is ${ageSeconds}s old (allowed ${allowedAge}s).`, `آخر شمعة عمرها ${ageSeconds} ثانية والمسموح ${allowedAge} ثانية.`, {
       instrument, timeframe, candles: candles.length, last_candle_at: priceTime, age_seconds: ageSeconds,
     });
+  }
+
+  let quote = null;
+  if (typeof session.quote === 'function') {
+    try { quote = await session.quote({ instrumentId: instrument.id, timeframe }); } catch { quote = null; }
   }
 
   const analysisWindow = candles.slice(-200);
@@ -305,11 +359,15 @@ async function analyzeAsset({
     direction,
     confidence: round(confidence, 3),
     price: round(ind.price),
+    live_price: quote ? round(quote.price) : null,
+    live_price_at: quote ? quote.read_at : null,
     price_time: priceTime,
     last_update: new Date().toISOString(),
     age_seconds: ageSeconds,
     timeframe,
     expiry,
+    expiry_seconds: EXPIRY_SECONDS[expiry],
+    expiry_supported: expiryCheck.verified ? true : null,
     expiry_label_en: EXPIRY_LABELS[expiry].en,
     expiry_label_ar: EXPIRY_LABELS[expiry].ar,
     candles: candles.length,
@@ -340,7 +398,6 @@ async function analyzeAsset({
 }
 
 function fiveIntervals(timeframe) {
-  const { TIMEFRAME_MS } = require('./expertoption-session');
   return ((TIMEFRAME_MS[timeframe] || 60_000) / 1000) * 5;
 }
 
@@ -358,6 +415,8 @@ module.exports = {
   EXPIRY_LABELS,
   resolveInstrument,
   describeAssets,
+  pickTimeframe,
+  EXPIRY_SECONDS,
   supportResistance,
   analyzeAsset,
 };

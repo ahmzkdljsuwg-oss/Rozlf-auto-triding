@@ -1,21 +1,24 @@
 'use strict';
 
 /*
- * ExpertOption data session.
+ * ExpertOption data session (read-only).
  *
- * ExpertOption publishes no public API for account-scoped market data, so this
- * module talks to an *authorized* gateway that the operator configures through
- * EXPERTOPTION_API_BASE_URL / EXPERTOPTION_API_KEY. Nothing is scraped, no
- * undocumented endpoint is called, and a stored cookie or token is never taken
- * as proof of a working connection: verify() only succeeds after the gateway
- * returns a live account record.
+ * Market and account data come from the ROZLF ExpertOption bridge service
+ * (`eo_bridge/`, EXPERTOPTION_BRIDGE_URL), which holds the user's ExpertOption
+ * session token in memory and reads the account's own asset list, quotes and
+ * candles over the platform WebSocket. The token is sent as X-EO-Token and is
+ * never logged, stored in the browser, or forwarded anywhere else.
  *
- * Documented gateway contract (all JSON, Bearer auth):
- *   GET /session     -> { ok, account: { login, type, currency, balance, ... }, expires_at }
- *   GET /instruments -> { instruments: [ { id, symbol, name, category, otc, expiries } ] }
- *   GET /account     -> { account: { ... } }
+ * Bridge contract (JSON; Authorization: Bearer <EXPERTOPTION_BRIDGE_KEY>):
+ *   GET /session     -> { connected, verified, account: { login, balance, ... } }   + X-EO-Token
+ *   GET /instruments -> { instruments: [ { id, symbol, name, otc, active, payout, timeframes } ] }
+ *   GET /account     -> { login, type, currency, balance, equity, free_margin, used_margin }
  *   GET /candles?instrument_id=&timeframe=&limit= -> { candles: [ ... ] }
+ *   GET /quote?instrument_id=&timeframe=          -> { price, time, source, age_ms }
+ *   GET /instrument/{id}/expiries?timeframe=      -> { expiries: [ ... ] }
  *
+ * A stored token is never taken as proof of a working connection: verify()
+ * only succeeds after the bridge returns a live account record.
  * Nothing in this module can place an order.
  */
 const config = require('./config');
@@ -29,18 +32,18 @@ const POLICY_REASON_AR =
   + 'في علاقة العميل بالخادم. لا يمكن تنفيذ التداول الآلي دون موافقة كتابية من ExpertOption.';
 
 const SOURCE_REASON_EN =
-  'ExpertOption does not publish a documented API for account-scoped candles, '
-  + 'asset discovery, balances or orders. No unofficial endpoint is called.';
+  'ExpertOption publishes no documented public API for candles, asset discovery or balances. '
+  + 'ROZLF reads them from the connected account through its own bridge service, and never places orders.';
 const SOURCE_REASON_AR =
-  'ExpertOption لا تنشر واجهة برمجية موثقة لقراءة شموع الحساب أو أصوله أو رصيده أو تنفيذ الأوامر. '
-  + 'لا يتم استدعاء أي واجهة داخلية غير موثقة.';
+  'ExpertOption لا تنشر واجهة برمجية موثقة لقراءة الشموع أو الأصول أو الأرصدة. '
+  + 'يقرأها ROZLF من الحساب المتصل عبر خدمة الربط الخاصة به، ولا ينفذ أي أوامر.';
 
 const GATEWAY_REASON_EN =
-  'No authorized ExpertOption data gateway is configured. Set EXPERTOPTION_API_BASE_URL '
-  + 'and EXPERTOPTION_API_KEY in the server environment to enable live session data.';
+  'The ExpertOption bridge is not configured. Set EXPERTOPTION_BRIDGE_URL and '
+  + 'EXPERTOPTION_BRIDGE_KEY on the server to read live session data.';
 const GATEWAY_REASON_AR =
-  'لا توجد بوابة بيانات ExpertOption مصرح بها ومهيأة. أضف EXPERTOPTION_API_BASE_URL '
-  + 'وEXPERTOPTION_API_KEY في متغيرات البيئة لتفعيل بيانات الجلسة الحقيقية.';
+  'خدمة ربط ExpertOption غير مهيأة. أضف EXPERTOPTION_BRIDGE_URL وEXPERTOPTION_BRIDGE_KEY '
+  + 'في متغيرات البيئة لقراءة بيانات الجلسة الحقيقية.';
 
 class ExpertOptionError extends Error {
   constructor(message, code, { status = null, retryAfterMs = null } = {}) {
@@ -53,7 +56,8 @@ class ExpertOptionError extends Error {
 }
 
 const TIMEFRAME_MS = {
-  '30s': 30_000, M1: 60_000, M2: 120_000, M5: 300_000, M15: 900_000,
+  S5: 5_000, S10: 10_000, S15: 15_000, '30s': 30_000, S30: 30_000,
+  M1: 60_000, M2: 120_000, M3: 180_000, M5: 300_000, M15: 900_000,
   M30: 1_800_000, H1: 3_600_000, H4: 14_400_000, D1: 86_400_000,
 };
 
@@ -98,8 +102,8 @@ function normalizeCandle(row, timeframe) {
 class ExpertOptionSession {
   constructor({
     login, tokenPresent = false, accountType = 'demo', token = '',
-    baseUrl = config.EXPERTOPTION_API_BASE_URL,
-    apiKey = config.EXPERTOPTION_API_KEY,
+    baseUrl = config.EXPERTOPTION_BRIDGE_URL || config.EXPERTOPTION_API_BASE_URL,
+    apiKey = config.EXPERTOPTION_BRIDGE_KEY || config.EXPERTOPTION_API_KEY,
     account = config.EXPERTOPTION_API_ACCOUNT,
     fetchImpl = global.fetch,
     timeoutMs = config.EXPERTOPTION_API_TIMEOUT_MS,
@@ -110,7 +114,8 @@ class ExpertOptionSession {
   } = {}) {
     this.login = login || account || '';
     this.accountType = accountType;
-    this.token = token || apiKey || '';
+    this.token = token || config.EXPERTOPTION_SESSION_TOKEN || '';
+    this.bridgeKey = apiKey || '';
     this.tokenPresent = Boolean(tokenPresent || this.token);
     this.baseUrl = String(baseUrl || '').replace(/\/+$/, '');
     this.account = account || '';
@@ -135,7 +140,8 @@ class ExpertOptionSession {
     this.createdAt = new Date().toISOString();
   }
 
-  get configured() { return Boolean(this.baseUrl && this.token); }
+  get configured() { return Boolean(this.baseUrl && this.token && this.bridgeKey); }
+  get demo() { return this.accountType !== 'real'; }
 
   _state() {
     if (!this.configured) return this.tokenPresent ? 'token_saved_unverified' : 'no_credentials';
@@ -152,6 +158,7 @@ class ExpertOptionSession {
       token_present: this.tokenPresent,
       token_stored_encrypted: this.tokenPresent,
       gateway_configured: this.configured,
+      bridge_configured: this.configured,
       connection_state: this._state(),
       connected: this.connected,
       verified: this.verified,
@@ -192,7 +199,9 @@ class ExpertOptionSession {
         response = await this.fetchImpl(url.toString(), {
           method: 'GET',
           headers: {
-            Authorization: `Bearer ${this.token}`,
+            Authorization: `Bearer ${this.bridgeKey}`,
+            'X-EO-Token': this.token,
+            'X-EO-Demo': this.demo ? '1' : '0',
             Accept: 'application/json',
             ...(this.account ? { 'X-Account-Login': this.account } : {}),
           },
@@ -320,12 +329,16 @@ class ExpertOptionSession {
       const id = row.id ?? row.instrument_id ?? row.asset_id;
       const name = String(row.name ?? row.symbol ?? '').trim();
       if (id === undefined || id === null || !name) return null;
+      const otc = Boolean(row.otc) || /otc/i.test(name);
       return {
         id: String(id),
         symbol: String(row.symbol || name).slice(0, 40),
         name: name.slice(0, 80),
-        category: String(row.category || (row.otc ? 'otc' : 'forex')).toLowerCase(),
-        otc: Boolean(row.otc) || /otc/i.test(name),
+        category: String(row.category || (otc ? 'otc' : 'forex')).toLowerCase(),
+        otc,
+        active: row.active === undefined ? true : Boolean(row.active),
+        payout: Number.isFinite(Number(row.payout)) ? Number(row.payout) : null,
+        timeframes: Array.isArray(row.timeframes) ? row.timeframes.map(Number).filter(Number.isFinite) : [],
         expiries: Array.isArray(row.expiries) ? row.expiries.map(String) : null,
       };
     }).filter(Boolean);
@@ -369,6 +382,42 @@ class ExpertOptionSession {
     return deduped;
   }
 
+  async quote({ instrumentId, timeframe = 'M1', stream = false } = {}) {
+    if (!this.verified) throw new ExpertOptionError('ExpertOption session is not verified', 'not_verified');
+    if (instrumentId === undefined || instrumentId === null || instrumentId === '') {
+      throw new ExpertOptionError('instrumentId is required', 'bad_request');
+    }
+    const tf = String(timeframe || 'M1').toUpperCase();
+    const data = await this._request('/quote', {
+      query: { instrument_id: instrumentId, timeframe: tf, stream: stream ? 1 : undefined },
+      retries: 1,
+    });
+    const price = Number(data?.price);
+    if (!Number.isFinite(price) || price <= 0) {
+      throw new ExpertOptionError('ExpertOption bridge returned no live price', 'no_data');
+    }
+    return {
+      instrument_id: String(instrumentId),
+      timeframe: tf,
+      price,
+      time: Number.isFinite(Number(data?.time)) ? Number(data.time) : null,
+      source: String(data?.source || 'candles'),
+      age_ms: Number.isFinite(Number(data?.age_ms)) ? Number(data.age_ms) : null,
+      read_at: new Date().toISOString(),
+    };
+  }
+
+  async expiries({ instrumentId, timeframe = 'M1' } = {}) {
+    if (!this.verified) throw new ExpertOptionError('ExpertOption session is not verified', 'not_verified');
+    const tf = String(timeframe || 'M1').toUpperCase();
+    const data = await this._request(`/instrument/${encodeURIComponent(instrumentId)}/expiries`, {
+      query: { timeframe: tf },
+      retries: 0,
+    });
+    const rows = Array.isArray(data?.expiries) ? data.expiries.map(Number).filter((v) => Number.isFinite(v) && v > 0) : [];
+    return { expiries: rows, source: String(data?.source || 'unavailable') };
+  }
+
   clearCache() {
     this._instruments = null;
     this._instrumentsAt = 0;
@@ -377,12 +426,17 @@ class ExpertOptionSession {
 }
 
 function integrationStatus() {
-  const configured = Boolean(config.EXPERTOPTION_API_BASE_URL && config.EXPERTOPTION_API_KEY);
+  const configured = Boolean(
+    (config.EXPERTOPTION_BRIDGE_URL || config.EXPERTOPTION_API_BASE_URL)
+    && (config.EXPERTOPTION_BRIDGE_KEY || config.EXPERTOPTION_API_KEY),
+  );
   return {
     platform: 'expertoption',
     official_api_available: false,
     documented_api_found: false,
     authorized_gateway_configured: configured,
+    bridge_configured: configured,
+    read_only: true,
     trading_api_available: false,
     account_data_api_available: configured,
     market_data_api_available: configured,
@@ -396,11 +450,11 @@ function integrationStatus() {
     source_reason_en: configured ? null : SOURCE_REASON_EN,
     source_reason_ar: configured ? null : SOURCE_REASON_AR,
     next_step_en: configured
-      ? 'Data access uses the configured authorized gateway. Trading stays disabled: no execution endpoint exists.'
-      : 'Configure EXPERTOPTION_API_BASE_URL and EXPERTOPTION_API_KEY with an authorized data gateway. Trading stays disabled.',
+      ? 'Analysis reads the connected account through the ROZLF bridge. Execution stays disabled (read-only).'
+      : 'Deploy eo_bridge and set EXPERTOPTION_BRIDGE_URL + EXPERTOPTION_BRIDGE_KEY. Execution stays disabled (read-only).',
     next_step_ar: configured
-      ? 'قراءة البيانات تعتمد على البوابة المصرح بها المهيأة. التداول يبقى معطلاً لعدم وجود واجهة تنفيذ.'
-      : 'أضف EXPERTOPTION_API_BASE_URL وEXPERTOPTION_API_KEY لبوابة بيانات مصرح بها. التداول يبقى معطلاً.',
+      ? 'التحليل يقرأ الحساب المتصل عبر خدمة الربط. التنفيذ يبقى معطلاً (قراءة فقط).'
+      : 'شغّل خدمة eo_bridge واضبط EXPERTOPTION_BRIDGE_URL وEXPERTOPTION_BRIDGE_KEY. التنفيذ يبقى معطلاً (قراءة فقط).',
   };
 }
 

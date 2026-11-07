@@ -60,17 +60,18 @@ function gatewayFetch({ instruments, candles, sessionStatus = 200, sessionBody =
 }
 
 const INSTRUMENTS = [
-  { id: '240', symbol: 'SMARTY', name: 'Smarty', category: 'smarty', otc: false },
-  { id: '179', symbol: 'EURUSD_OTC', name: 'EUR/USD OTC', category: 'otc', otc: true },
-  { id: '276', symbol: 'CRICKET', name: 'Cricket Index', category: 'index', otc: false },
-  { id: '999', symbol: 'GER40', name: 'Germany 40', category: 'index', otc: false },
+  { id: '240', symbol: 'SMARTY', name: 'Smarty', category: 'smarty', otc: false, active: true, payout: 82, timeframes: [60, 300] },
+  { id: '179', symbol: 'EURUSD_OTC', name: 'EUR/USD OTC', category: 'otc', otc: true, active: true, payout: 78, timeframes: [60, 300] },
+  { id: '276', symbol: 'CRICKET', name: 'Cricket Index', category: 'index', otc: false, active: true, payout: 80, timeframes: [60] },
+  { id: '999', symbol: 'GER40', name: 'Germany 40', category: 'index', otc: false, active: true, payout: 80, timeframes: [60] },
 ];
 
 function sessionFor(fake, overrides = {}) {
   return new ExpertOptionSession({
     login: '900001',
-    baseUrl: 'https://gateway.test',
-    apiKey: 'test-token',
+    baseUrl: 'https://bridge.test',
+    apiKey: 'bridge-key',
+    token: 'eo-session-token',
     fetchImpl: fake.fetchImpl,
     minIntervalMs: 0,
     retries: 0,
@@ -100,7 +101,7 @@ test('a stored token without a gateway is not treated as a connection', async ()
   const status = await session.verify();
   assert.equal(status.verified, false);
   assert.equal(status.connection_state, 'token_saved_unverified');
-  assert.match(status.reason_en, /gateway/i);
+  assert.match(status.reason_en, /bridge|gateway/i);
 });
 
 test('verify reads the account from the gateway', async () => {
@@ -285,4 +286,67 @@ test('account info refreshes from the gateway instead of reusing the session sna
   const info = await session.accountInfo();
   assert.equal(info.balance, 10055);
   assert.equal(info.equity, 10055);
+});
+
+test('the bridge key and the session token travel in different headers', async () => {
+  const seen = [];
+  const fake = gatewayFetch({ instruments: INSTRUMENTS, candles: [] });
+  const session = sessionFor(fake, {
+    fetchImpl: async (url, init) => {
+      seen.push(init.headers);
+      return fake.fetchImpl(url);
+    },
+  });
+  await session.verify();
+  assert.equal(seen[0].Authorization, 'Bearer bridge-key');
+  assert.equal(seen[0]['X-EO-Token'], 'eo-session-token');
+  assert.equal(seen[0]['X-EO-Demo'], '1');
+});
+
+test('a duration the asset does not offer is refused before any analysis', async () => {
+  const fake = gatewayFetch({ instruments: INSTRUMENTS, candles: makeCandles(200) });
+  const session = sessionFor(fake, {
+    fetchImpl: async (url, init) => {
+      const parsed = new URL(url);
+      if (parsed.pathname.endsWith('/expiries')) {
+        return { ok: true, status: 200, headers: { get: () => null }, json: async () => ({ expiries: [60] }) };
+      }
+      return fake.fetchImpl(url, init);
+    },
+  });
+  await session.verify();
+  const result = await analyzeAsset({ session, assetKey: 'smarty', expiry: '5m' });
+  assert.equal(result.ok, false);
+  assert.equal(result.reason_code, 'expiry_unsupported');
+  assert.equal(result.execution_allowed, false);
+});
+
+test('a live quote is attached to the analysis when the bridge returns one', async () => {
+  const now = Date.now();
+  const fake = gatewayFetch({ instruments: INSTRUMENTS, candles: makeCandles(200, { start: now - 200 * TF.M1 }) });
+  const session = sessionFor(fake, {
+    fetchImpl: async (url, init) => {
+      const parsed = new URL(url);
+      if (parsed.pathname === '/quote') {
+        return { ok: true, status: 200, headers: { get: () => null }, json: async () => ({ price: 1.23456, time: now, source: 'candles+stream', age_ms: 250 }) };
+      }
+      return fake.fetchImpl(url, init);
+    },
+  });
+  await session.verify();
+  const result = await analyzeAsset({ session, assetKey: 'smarty', expiry: '1m' });
+  assert.equal(result.ok, true);
+  assert.equal(result.live_price, 1.23456);
+  assert.equal(result.timeframe, 'M1');
+});
+
+test('an inactive asset yields NO TRADE with an explicit reason', async () => {
+  const instruments = INSTRUMENTS.map((i) => (i.id === '240' ? { ...i, active: false } : i));
+  const fake = gatewayFetch({ instruments, candles: makeCandles(200) });
+  const session = sessionFor(fake);
+  await session.verify();
+  const result = await analyzeAsset({ session, assetKey: 'smarty', expiry: '1m' });
+  assert.equal(result.ok, false);
+  assert.equal(result.direction, 'NO TRADE');
+  assert.equal(result.reason_code, 'asset_inactive');
 });
