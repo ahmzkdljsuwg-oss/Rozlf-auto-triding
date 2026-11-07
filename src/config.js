@@ -31,7 +31,7 @@ const config = {
   DATA_DIR,
   CHART_DIR,
   APP_NAME: 'ROZLF AUTO TRADER',
-  APP_VERSION: '2.2.0',
+  APP_VERSION: '2.3.0',
   PORT: Number(env('PORT', 8000)),
 
   SECRET_KEY: env('APP_SECRET_KEY', ''),

@@ -1,6 +1,6 @@
 {
   "name": "rozlf-auto-trader",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "private": true,
   "description": "ROZLF AUTO TRADER — demo-first automated trading dashboard (Node.js/Express)",
   "main": "server.js",

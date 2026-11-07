@@ -18,7 +18,9 @@ services:
       - key: DASHBOARD_TOKEN
         sync: false
       - key: DATABASE_URL
-        sync: false
+        fromDatabase:
+          name: rozlf-db
+          property: connectionString
       - key: REAL_TRADING_APPROVED
         value: "false"
       - key: MT5_ENABLED
@@ -48,7 +50,7 @@ services:
       - key: EXPERTOPTION_RESTORE_SESSION
         value: "true"
       - key: EXPERTOPTION_ALLOW_REAL_READ
-        value: "false"
+        value: "true"
       - key: EXPERTOPTION_API_BASE_URL
         sync: false
       - key: EXPERTOPTION_API_KEY
@@ -85,3 +87,9 @@ services:
         value: "true"
       - key: EO_BRIDGE_QUOTE_MAX_AGE_SECONDS
         value: "20"
+
+databases:
+  - name: rozlf-db
+    plan: free
+    databaseName: rozlf
+    user: rozlf

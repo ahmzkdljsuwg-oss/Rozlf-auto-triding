@@ -22,6 +22,8 @@ const DICT = {
     "account.real": "حساب حقيقي",
     "account.realSub": "يفتح بعد اكتمال الاختبارات وموافقتك الصريحة",
     "account.realLocked": "الحساب الحقيقي مقفل. أكمل الاختبارات التجريبية أولاً.",
+    "account.realReadOnly": "قراءة فقط: تحليل وتنبيهات، بدون تنفيذ صفقات",
+    "account.realReadHint": "👁",
 
     "login.eyebrow": "الخطوة 3 من 3",
     "login.title": "تسجيل الدخول",
@@ -216,6 +218,8 @@ const DICT = {
     "account.real": "Real account",
     "account.realSub": "Unlocks after testing is complete and you approve",
     "account.realLocked": "Real trading is locked. Complete demo testing first.",
+    "account.realReadOnly": "Read-only: analysis and alerts, no order execution",
+    "account.realReadHint": "👁",
 
     "login.eyebrow": "Step 3 of 3",
     "login.title": "Sign in",

@@ -268,10 +268,34 @@
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
+  // Real is selectable only for read-only ExpertOption analysis; execution stays off.
+  function applyRealAvailability() {
+    const realBtn = $('[data-account-type="real"]');
+    if (!realBtn) return;
+    const approved = Boolean(state.config && state.config.real_trading_approved);
+    const readOnly = !approved && state.platform === "expertoption"
+      && Boolean(state.config && state.config.expertoption_real_read);
+    const enabled = approved || readOnly;
+    realBtn.disabled = !enabled;
+    realBtn.classList.toggle("locked", !enabled);
+    const sub = realBtn.querySelector("small");
+    if (sub) sub.textContent = readOnly ? t("account.realReadOnly") : t("account.realSub");
+    const hint = realBtn.querySelector(".lock-hint");
+    if (hint) hint.textContent = enabled ? t("account.realReadHint") : "🔒";
+    if (!enabled && state.accountType === "real") {
+      state.accountType = "demo";
+      const demoBtn = $('[data-account-type="demo"]');
+      if (demoBtn) {
+        $$(".account-card").forEach((c) => c.classList.toggle("selected", c === demoBtn));
+      }
+    }
+  }
+
   function selectPlatform(platform) {
     state.platform = platform;
     $("#selected-platform-label").textContent =
       platform === "mt5" ? "MetaTrader 5 · Demo" : "ExpertOption · Analysis";
+    applyRealAvailability();
     showScreen("account");
   }
 
@@ -1056,6 +1080,7 @@
 
   /* ---------------- wiring ---------------- */
   function bind() {
+    document.addEventListener("langchange", applyRealAvailability);
     $$("[data-platform]").forEach((b) => b.addEventListener("click", () => selectPlatform(b.dataset.platform)));
     $$("[data-account-type]").forEach((b) => b.addEventListener("click", () => {
       if (b.disabled) { toast(t("account.realLocked"), "error"); return; }
@@ -1134,10 +1159,7 @@
     try {
       state.config = await api("/config");
       $("#disclaimer-text").textContent = state.config.disclaimer || "";
-      if (!state.config.real_trading_approved) {
-        const realBtn = $('[data-account-type="real"]');
-        if (realBtn) realBtn.disabled = true;
-      }
+      applyRealAvailability();
     } catch (err) {
       toast(err.message, "error");
     }

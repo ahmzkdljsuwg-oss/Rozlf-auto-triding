@@ -9,4 +9,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY eo_bridge ./eo_bridge
 
 EXPOSE 8080
-CMD ["uvicorn", "eo_bridge.app:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["sh", "-c", "uvicorn eo_bridge.app:app --host 0.0.0.0 --port ${PORT:-8080}"]

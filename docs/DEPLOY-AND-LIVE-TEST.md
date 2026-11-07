@@ -11,6 +11,15 @@
 | --- | --- | --- |
 | `rozlf-auto-trader` | Node web service | `server.js` (الخادم والواجهة والتحليل) |
 | `rozlf-eo-bridge` | Docker | `eo_bridge/Dockerfile` → `/health` |
+| `rozlf-db` | PostgreSQL (free) | مربوط بـ `DATABASE_URL` عبر `fromDatabase` |
+
+### النشر عبر Blueprint
+1. Render → **New → Blueprint** → اختر المستودع `ahmzkdljsuwg-oss/Rozlf-auto-triding` والفرع `main`.
+2. Render يقرأ `render.yaml` وينشئ الخدمتين وقاعدة `rozlf-db` معاً.
+3. املأ المتغيرات المعلّمة `sync: false` (تظهر لك في شاشة الإنشاء)، ثم Apply.
+4. قاعدة PostgreSQL المجانية في Render لها حدّ عمري/مساحة؛ للاستمرار الطويل استخدم
+   Neon أو Supabase Free وضع رابطها في `DATABASE_URL` بدل `fromDatabase`.
+   بدون `DATABASE_URL` تبقى الجلسة في SQLite محلي وتضيع مع كل إعادة نشر.
 
 الـ bridge يجب أن يكون في نفس منطقة Render القريبة من خوادم ExpertOption؛
 الافتراضي `EO_BRIDGE_REGION=EUROPE` (`eo_bridge/manager.py:37`).
@@ -29,7 +38,8 @@ EXPERTOPTION_BRIDGE_URL  = https://<bridge-host>
 EXPERTOPTION_BRIDGE_KEY  = <مفتاح سري طويل>
 EXPERTOPTION_SESSION_TOKEN = <توكن جلسة ExpertOption>
 EXPERTOPTION_RESTORE_SESSION = true            # يستعيد الجلسة من التخزين المشفر بعد الإقلاع
-EXPERTOPTION_ALLOW_REAL_READ = false           # قراءة حساب حقيقي للتحليل فقط
+EXPERTOPTION_ALLOW_REAL_READ = true            # قراءة حساب حقيقي للتحليل فقط (لا تنفيذ)
+DATABASE_URL        = <رابط PostgreSQL>        # مربوط تلقائياً بقاعدة rozlf-db في Blueprint
 MISTRAL_API_KEY     = <مفتاح Mistral>
 TELEGRAM_BOT_TOKEN  = <توكن البوت>
 TELEGRAM_CHAT_ID    = <معرّف المحادثة>
