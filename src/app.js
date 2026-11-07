@@ -69,7 +69,7 @@ function createApp({ engine }) {
       simulated_mt5_allowed: config.ALLOW_SIMULATED_MT5,
       speeds: ['slow', 'medium', 'fast'],
       default_speed: 'medium',
-      ai_enabled: Boolean(config.MISTRAL_API_KEY || config.GEMINI_API_KEY),
+      ai_enabled: Boolean(config.MISTRAL_API_KEY),
       telegram_enabled: Boolean(config.TELEGRAM_BOT_TOKEN && config.TELEGRAM_CHAT_ID),
       disclaimer: config.DISCLAIMER,
     });

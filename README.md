@@ -274,13 +274,13 @@ approved public trading API, so it is analysis and alerts only.
 أضيف قسم **تحليل صورة الشارت بالذكاء الاصطناعي** داخل لوحة التحكم:
 - يقبل صور PNG وJPG وWEBP حتى 5MB.
 - يتيح اختيار OTC أو Smarty أو Forex أو سوق آخر، مع اسم الأصل والفريم اختيارياً.
-- يرسل الصورة إلى Gemini Vision لتحليل الاتجاه وهيكل السوق والمناطق الظاهرة وBOS/CHoCH والسيولة عند وجود دليل بصري.
+- يرسل الصورة إلى Mistral Vision لتحليل الاتجاه وهيكل السوق والمناطق الظاهرة وBOS/CHoCH والسيولة عند وجود دليل بصري.
 - يعرض BUY / SELL / WAIT مع درجة ثقة وملاحظات وحدود التحليل.
 - التحليل بصري فقط؛ لا يقرأ أسعار OTC/Smarty الحية من حساب ExpertOption ولا ينفذ صفقات.
-- يتطلب ضبط `GEMINI_API_KEY` في بيئة التشغيل.
+- يتطلب ضبط `MISTRAL_API_KEY` في بيئة التشغيل.
 
 **مهم:** ماسح الأسعار الآلي يظل محصوراً بالأصول التي لها بيانات عامة موثوقة. لا تُضاف أصول OTC/Smarty إلى المسح الحي إلا عند توفر مصدر بيانات رسمي وموثوق لها. لا توجد إشارة مضمونة.
 
 
 ### إعداد Mistral
-ضع `MISTRAL_API_KEY` في Render Environment Variables ليكون Mistral محرك مراجعة الإشارات التلقائية. النموذج الافتراضي `mistral-small-latest`. لا تضع المفتاح في الواجهة أو GitHub. تحليل صور الشارت ما زال يستخدم Gemini Vision اختيارياً ويتطلب `GEMINI_API_KEY`.
+ضع `MISTRAL_API_KEY` في Render Environment Variables ليكون Mistral محرك مراجعة الإشارات التلقائية. النموذج الافتراضي `mistral-small-latest`. لا تضع المفتاح في الواجهة أو GitHub. تحليل صور الشارت يستخدم Mistral Vision مباشرة ويتطلب `MISTRAL_API_KEY` نفسه؛ لا يوجد أي مزود بديل.

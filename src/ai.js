@@ -208,19 +208,73 @@ class MistralAnalyzer {
       return { verdict: 'UNAVAILABLE', confidence: null, rationale: `Mistral unavailable: ${err.message}`, enabled: true };
     }
   }
+
+  async analyzeChartImage({ imageBase64, mimeType, marketType = 'unknown', symbol = 'unknown', timeframe = 'unknown' }) {
+    if (!this.enabled) throw new Error('MISTRAL_API_KEY is not configured');
+    const clean = String(imageBase64 || '').replace(/^data:[^,]+,/, '');
+    if (!clean || clean.length > 7_000_000) throw new Error('Image is missing or too large (max about 5 MB)');
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(mimeType)) {
+      throw new Error('Only PNG, JPEG and WEBP images are supported');
+    }
+    const prompt = [
+      'You are ROZLF chart-analysis assistant. Analyze ONLY what is visible in this chart image.',
+      'The market may be Forex, OTC, Smarty, or a synthetic index.',
+      'Do not claim access to broker account data, live prices, or hidden candles.',
+      'Never invent exact prices, expiry, candle times, or indicators that are not readable.',
+      'If the screenshot is unclear, return WAIT and explain the limitation.',
+      'Assess trend, market structure, BOS/CHoCH, liquidity sweeps, support/resistance, order blocks and FVG only when visually supported.',
+      'Return JSON only with keys: market_type, symbol_seen, timeframe_seen, direction (BUY/SELL/WAIT), confidence (0-100), trend, structure, key_zones, setup, invalidation, expiry_guidance, reasons (array), limitations (array).',
+      'Never describe a signal as guaranteed. For OTC/Smarty state clearly that this is image-only analysis and no verified broker feed was used.',
+      `User hints: market=${marketType}; symbol=${symbol}; timeframe=${timeframe}.`,
+    ].join('\n');
+    const response = await fetch('https://api.mistral.ai/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${this.apiKey}` },
+      body: JSON.stringify({
+        model: this.model,
+        temperature: 0.1,
+        max_tokens: 900,
+        response_format: { type: 'json_object' },
+        messages: [
+          { role: 'system', content: 'You are a cautious chart analyst. Return valid JSON only.' },
+          { role: 'user', content: [
+            { type: 'text', text: prompt },
+            { type: 'image_url', image_url: `data:${mimeType};base64,${clean}` },
+          ] },
+        ],
+      }),
+      signal: AbortSignal.timeout(45000),
+    });
+    if (!response.ok) {
+      const detail = (await response.text()).slice(0, 180);
+      throw new Error(`Mistral image analysis failed (HTTP ${response.status}): ${detail}`);
+    }
+    const data = await response.json();
+    let raw = data?.choices?.[0]?.message?.content || '';
+    if (Array.isArray(raw)) raw = raw.map((part) => part.text || '').join('');
+    raw = String(raw).replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim();
+    let result;
+    try { result = JSON.parse(raw); } catch { throw new Error('Mistral returned an unreadable image analysis'); }
+    const direction = String(result.direction || 'WAIT').toUpperCase();
+    result.direction = ['BUY', 'SELL', 'WAIT'].includes(direction) ? direction : 'WAIT';
+    result.confidence = Math.max(0, Math.min(100, Number(result.confidence) || 0));
+    result.market_type = String(result.market_type || marketType).slice(0, 80);
+    result.symbol_seen = String(result.symbol_seen || symbol).slice(0, 80);
+    result.timeframe_seen = String(result.timeframe_seen || timeframe).slice(0, 40);
+    result.image_only = true;
+    result.execution_allowed = false;
+    return result;
+  }
 }
 
 class RozlfAnalyzer {
   constructor() {
-    this.primary = config.MISTRAL_API_KEY ? new MistralAnalyzer() : new GeminiAnalyzer();
-    this.vision = new GeminiAnalyzer();
+    // Mistral is the only configured AI provider; never silently fall back to Gemini.
+    this.primary = new MistralAnalyzer();
   }
   get enabled() { return this.primary.enabled; }
   review(signal, context) { return this.primary.review(signal, context); }
-  analyzeChartImage(args) {
-    if (!this.vision.enabled) throw new Error('Image analysis requires GEMINI_API_KEY; Mistral is currently used for automatic signal review.');
-    return this.vision.analyzeChartImage(args);
-  }
+  analyzeChartImage(args) { return this.primary.analyzeChartImage(args); }
 }
 
 module.exports = { GeminiAnalyzer, MistralAnalyzer, RozlfAnalyzer };
