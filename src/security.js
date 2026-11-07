@@ -41,7 +41,7 @@ function maskAccount(login) {
 
 function dashboardTokenOk(supplied) {
   const expected = config.DASHBOARD_TOKEN;
-  if (!expected) return true;
+  if (!expected) return Boolean(config.ALLOW_INSECURE_DASHBOARD);
   if (!supplied) return false;
   const a = Buffer.from(String(supplied));
   const b = Buffer.from(String(expected));

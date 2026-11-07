@@ -27,9 +27,14 @@ from .manager import (
     registry,
 )
 
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 BRIDGE_KEY = os.getenv("EO_BRIDGE_API_KEY", "")
+# Order submission is not implemented at all: the vendored client's buy/sell
+# raise TradingDisabledError. EO_BRIDGE_DEMO_ONLY therefore only describes the
+# execution policy; it never gates reading data from a real account.
 ALLOWED_DEMO_ONLY = os.getenv("EO_BRIDGE_DEMO_ONLY", "true").lower() != "false"
+TRADING_ENABLED = False
+READ_ANY_ACCOUNT = os.getenv("EO_BRIDGE_ALLOW_REAL_READ", "true").lower() != "false"
 
 logging.basicConfig(
     level=os.getenv("EO_BRIDGE_LOG_LEVEL", "INFO"),
@@ -55,11 +60,17 @@ def resolve_session(x_eo_token: Optional[str], x_eo_demo: Optional[str]):
     if not x_eo_token:
         raise HTTPException(status_code=401, detail="Missing X-EO-Token header")
     demo = (x_eo_demo or "1").strip() not in {"0", "false", "False", "real"}
-    if ALLOWED_DEMO_ONLY and not demo:
+    if not demo and not READ_ANY_ACCOUNT:
         raise HTTPException(
             status_code=403,
-            detail="This bridge is configured for ExpertOption demo accounts only",
+            detail={
+                "code": "real_read_disabled",
+                "message": "Reading a real account is disabled (EO_BRIDGE_ALLOW_REAL_READ=false). "
+                           "This is a read-only restriction, not a trading one.",
+            },
         )
+    if not demo:
+        log.info("Reading a real ExpertOption account (read-only, no order can be sent)")
     return registry.get(x_eo_token.strip(), demo)
 
 
@@ -144,6 +155,8 @@ async def health() -> Dict[str, Any]:
         "service": "rozlf-eo-bridge",
         "version": VERSION,
         "demo_only": ALLOWED_DEMO_ONLY,
+        "trading_enabled": TRADING_ENABLED,
+        "read_any_account": READ_ANY_ACCOUNT,
         "key_configured": bool(BRIDGE_KEY),
         "sessions": registry.describe(),
         "time": int(time.time()),

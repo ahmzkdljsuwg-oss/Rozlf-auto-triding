@@ -236,7 +236,25 @@ class ExpertOptionSession {
         );
       }
       if (!response.ok) {
-        throw new ExpertOptionError(`ExpertOption gateway returned HTTP ${response.status}`, 'bad_response', { status: response.status });
+        const detail = await response.json().catch(() => null);
+        const inner = detail && (detail.error || detail);
+        const code = inner && typeof inner === 'object' ? String(inner.code || '') : '';
+        const message = inner && typeof inner === 'object'
+          ? String(inner.message || inner.error || `HTTP ${response.status}`)
+          : `ExpertOption gateway returned HTTP ${response.status}`;
+        if (code === 'stale_data') {
+          throw new ExpertOptionError(message.slice(0, 200), 'stale_data', { status: response.status });
+        }
+        if (code === 'no_candles') {
+          throw new ExpertOptionError(message.slice(0, 200), 'no_candles', { status: response.status });
+        }
+        if (code === 'timeframe_unsupported') {
+          throw new ExpertOptionError(message.slice(0, 200), 'timeframe_unsupported', { status: response.status });
+        }
+        if (code === 'real_read_disabled') {
+          throw new ExpertOptionError(message.slice(0, 200), 'real_read_disabled', { status: response.status });
+        }
+        throw new ExpertOptionError(message.slice(0, 200), 'bad_response', { status: response.status });
       }
       let data;
       try { data = await response.json(); } catch { throw new ExpertOptionError('ExpertOption gateway returned invalid JSON', 'bad_payload'); }

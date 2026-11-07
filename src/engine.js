@@ -76,6 +76,12 @@ class TradingEngine {
 
   async init() {
     await this.ensureSettings();
+    try {
+      await this.restoreExpertOptionSession();
+    } catch (err) {
+      this.sessionRestore = { restored: false, reason: 'restore_failed', error: String(err.message || err).slice(0, 200) };
+      try { await this.db.addLog('warn', 'broker', `ExpertOption session restore failed: ${this.sessionRestore.error}`); } catch { /* ignore */ }
+    }
     return this;
   }
 
@@ -211,10 +217,118 @@ class TradingEngine {
     return this.risk.settings;
   }
 
+  async _wireExpertOptionAccount({ accountId, login, accountType, token, stored, restored }) {
+    this.account = await this.db.getAccount(accountId);
+    if (!this.account) throw new Error('ExpertOption account record is missing');
+    this.expertOptionSession = new ExpertOptionSession({
+      login,
+      tokenPresent: Boolean(token || config.EXPERTOPTION_SESSION_TOKEN),
+      accountType,
+      token: token || config.EXPERTOPTION_SESSION_TOKEN || '',
+    });
+    this.broker = null;
+    this.executionMode = 'analysis_only';
+    this.platform = 'expertoption';
+    this.accountType = accountType;
+    this.analysisOnly = true;
+    this.tradingMode = 'analysis';
+    await this.db.setSetting('trading.mode', 'analysis');
+    this.accountBalance = 0;
+    this.accountEquity = 0;
+    this.marginFree = 0;
+    this.marginUsed = 0;
+    this.marginLevel = null;
+    this.accountCurrency = 'USD';
+    this.accountSynced = false;
+    this.accountSyncAt = null;
+    this.accountSyncError = this.expertOptionSession.configured
+      ? (restored
+        ? 'Stored ExpertOption session restored; waiting for verification.'
+        : 'ExpertOption bridge configured; waiting for session verification.')
+      : 'No ExpertOption session token: open the bridge with the token from the connected account.';
+    this.emergency = false;
+    this.lastError = null;
+    this.opportunities = [];
+    this._lastTradeAt.clear();
+    this.scanner.reset();
+    this.scanner.bindAccount(this.account);
+    this.sessionRestore = {
+      restored,
+      restored_at: new Date().toISOString(),
+      account_id: accountId,
+      token_stored: stored,
+      bridge_configured: this.expertOptionSession.configured,
+    };
+    await this.db.addLog('info', 'broker',
+      restored
+        ? `ExpertOption session restored from encrypted store for ${login}`
+        : `ExpertOption token received for ${login}`,
+      { mode: 'analysis_only', token_stored: stored, bridge_configured: this.expertOptionSession.configured });
+
+    if (!this.expertOptionSession.configured) return this.status();
+    const verified = await this.expertOptionSession.verify();
+    if (verified.verified && verified.account) {
+      this.accountSynced = true;
+      this.accountSyncAt = new Date().toISOString();
+      this.accountSyncError = null;
+      this.accountBalance = Number(verified.account.balance) || 0;
+      this.accountEquity = Number(verified.account.equity) || this.accountBalance;
+      this.marginFree = Number(verified.account.free_margin) || 0;
+      this.marginUsed = Number(verified.account.used_margin) || 0;
+      this.accountCurrency = verified.account.currency || 'USD';
+      await this.db.setAccountStatus(this.account.id, 'connected');
+      await this.db.addLog('info', 'broker', 'ExpertOption session verified through the authorized gateway', {
+        balance: this.accountBalance, currency: this.accountCurrency,
+      });
+    } else {
+      await this.db.setAccountStatus(this.account.id, 'token_unverified');
+      this.accountSyncError = verified.last_error || 'ExpertOption session verification failed';
+      await this.db.addLog('warn', 'broker', `ExpertOption session not verified: ${this.accountSyncError}`);
+    }
+    return this.status();
+  }
+
+  async restoreExpertOptionSession() {
+    if (!config.EXPERTOPTION_RESTORE_SESSION) {
+      this.sessionRestore = { restored: false, reason: 'restore_disabled' };
+      return null;
+    }
+    let row = null;
+    try {
+      row = await this.db.latestAccount('expertoption');
+    } catch (err) {
+      this.sessionRestore = { restored: false, reason: 'account_lookup_failed' };
+      return null;
+    }
+    if (!row) {
+      this.sessionRestore = { restored: false, reason: 'no_stored_account' };
+      return null;
+    }
+    const { decryptSecret } = require('./security');
+    const decrypted = row.password_enc ? decryptSecret(row.password_enc) : '';
+    const token = decrypted || config.EXPERTOPTION_SESSION_TOKEN || '';
+    if (!token) {
+      this.sessionRestore = { restored: false, reason: 'stored_token_unreadable', account_id: row.id };
+      await this.db.addLog('warn', 'broker',
+        'Stored ExpertOption token could not be decrypted (APP_SECRET_KEY changed?); enter the token again from the UI');
+      return null;
+    }
+    return this._wireExpertOptionAccount({
+      accountId: row.id,
+      login: row.login,
+      accountType: row.account_type || 'demo',
+      token,
+      stored: true,
+      restored: true,
+    });
+  }
+
   async attachAccount({ platform, accountType, login, password, sessionToken = '', server = '' }) {
     if (!['mt5', 'expertoption'].includes(platform)) throw new Error('Unsupported platform');
     if (!['demo', 'real'].includes(accountType)) throw new Error('Unsupported account type');
-    if (accountType === 'real' && !config.REAL_TRADING_APPROVED) {
+    const eoRealRead = platform === 'expertoption' && accountType === 'real'
+      && config.EXPERTOPTION_ALLOW_REAL_READ;
+    if (accountType === 'real' && !config.REAL_TRADING_APPROVED && !eoRealRead) {
       throw new Error('Real trading is disabled until explicitly approved');
     }
     if (this.broker) {
@@ -222,72 +336,20 @@ class TradingEngine {
     }
 
     if (platform === 'expertoption') {
-      // The token is stored encrypted for a future approved integration. It is
-      // never sent to a third party and never treated as proof of connection.
       const secret = sessionToken || password || '';
       const accountRow = await this.db.upsertAccount(
         platform, accountType, login, server || 'ExpertOption',
         require('./security').encryptSecret(secret), 0,
       );
       await this.db.setAccountStatus(accountRow.id, 'token_unverified');
-      this.account = await this.db.getAccount(accountRow.id);
-      this.expertOptionSession = new ExpertOptionSession({
+      return this._wireExpertOptionAccount({
+        accountId: accountRow.id,
         login,
-        tokenPresent: Boolean(secret || config.EXPERTOPTION_SESSION_TOKEN),
         accountType,
         token: sessionToken || config.EXPERTOPTION_SESSION_TOKEN || '',
+        stored: Boolean(secret),
+        restored: false,
       });
-      this.broker = null;
-      this.executionMode = 'analysis_only';
-      this.platform = platform;
-      this.accountType = accountType;
-      this.analysisOnly = true;
-      this.tradingMode = 'analysis';
-      await this.db.setSetting('trading.mode', 'analysis');
-      this.accountBalance = 0;
-      this.accountEquity = 0;
-      this.marginFree = 0;
-      this.marginUsed = 0;
-      this.marginLevel = null;
-      this.accountCurrency = 'USD';
-      this.accountSynced = false;
-      this.accountSyncAt = null;
-      this.accountSyncError = this.expertOptionSession.configured
-        ? 'ExpertOption bridge configured; waiting for session verification.'
-        : 'No ExpertOption session token: open the bridge with the token from the connected account.';
-      this.emergency = false;
-      this.lastError = null;
-      this.opportunities = [];
-      this._lastTradeAt.clear();
-      this.scanner.reset();
-      this.scanner.bindAccount(this.account);
-      await this.db.addLog('info', 'broker', `ExpertOption token received for ${login}`, {
-        mode: 'analysis_only',
-        token_stored: Boolean(secret),
-        bridge_configured: this.expertOptionSession.configured,
-      });
-      if (this.expertOptionSession.configured) {
-        const verified = await this.expertOptionSession.verify();
-        if (verified.verified && verified.account) {
-          this.accountSynced = true;
-          this.accountSyncAt = new Date().toISOString();
-          this.accountSyncError = null;
-          this.accountBalance = Number(verified.account.balance) || 0;
-          this.accountEquity = Number(verified.account.equity) || this.accountBalance;
-          this.marginFree = Number(verified.account.free_margin) || 0;
-          this.marginUsed = Number(verified.account.used_margin) || 0;
-          this.accountCurrency = verified.account.currency || 'USD';
-          await this.db.setAccountStatus(this.account.id, 'connected');
-          await this.db.addLog('info', 'broker', 'ExpertOption session verified through the authorized gateway', {
-            balance: this.accountBalance, currency: this.accountCurrency,
-          });
-        } else {
-          await this.db.setAccountStatus(this.account.id, 'token_unverified');
-          this.accountSyncError = verified.last_error || 'ExpertOption session verification failed';
-          await this.db.addLog('warn', 'broker', `ExpertOption session not verified: ${this.accountSyncError}`);
-        }
-      }
-      return this.status();
     }
 
     let broker;
@@ -717,6 +779,7 @@ class TradingEngine {
       account_sync_error: this.accountSyncError,
       account_status: this.analysisOnly ? 'analysis' : (this.accountSynced ? 'connected' : 'disconnected'),
       expertoption: this.expertOptionSession ? this.expertOptionSession.status() : null,
+      session_restore: this.sessionRestore || { restored: false, reason: 'not_attempted' },
       market_data_source: this.platform === 'expertoption'
         ? (this.expertOptionSession && this.expertOptionSession.verified
           ? {

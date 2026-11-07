@@ -1,5 +1,6 @@
 import asyncio
 import os
+import time
 
 os.environ.setdefault("EO_BRIDGE_API_KEY", "test-key")
 
@@ -20,7 +21,9 @@ ASSETS = [
 ]
 
 
-def candle_rows(count=5, base=1700000000):
+def candle_rows(count=5, base=None):
+    if base is None:
+        base = int(time.time()) - count * 60
     return [
         {
             "time": base + i * 60,
@@ -138,7 +141,7 @@ async def test_candles_are_millisecond_timestamps(client):
     assert response.status_code == 200
     body = response.json()
     assert body["count"] == 5
-    assert body["candles"][0]["time"] == 1700000000000
+    assert body["candles"][0]["time"] == pytest.approx(candle_rows()[0]["time"] * 1000, abs=1000)
 
 
 @pytest.mark.asyncio
@@ -171,10 +174,40 @@ async def test_empty_candles_are_reported_not_invented(client):
 
 
 @pytest.mark.asyncio
-async def test_real_account_is_blocked_when_demo_only(client):
+async def test_real_account_data_is_readable_while_trading_stays_disabled(client):
     headers = dict(HEADERS, **{"X-EO-Demo": "0"})
     response = await client.get("/session", headers=headers)
-    assert response.status_code == 403
+    assert response.status_code == 200
+    body = response.json()
+    assert body["account"]["type"] == "real"
+    # the stand-in profile has no real balance: the bridge reports null, never a made-up figure
+    assert body["account"]["balance"] is None
+    candles = await client.get("/candles", params={"instrument_id": 240, "timeframe": "M1"}, headers=headers)
+    assert candles.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_health_reports_trading_as_disabled(client):
+    body = (await client.get("/health")).json()
+    assert body["trading_enabled"] is False
+    assert body["demo_only"] is True
+    assert body["read_any_account"] is True
+
+
+@pytest.mark.asyncio
+async def test_a_stale_quote_is_refused_instead_of_reused(client):
+    first = await client.get("/quote", params={"instrument_id": 240, "timeframe": "M1"}, headers=HEADERS)
+    assert first.status_code == 200
+    session = next(iter(manager.registry.sessions.values()))
+    session.quotes.clear()
+
+    async def old_candles(*_args, **_kwargs):
+        return candle_rows(base=int(time.time()) - 3600)
+
+    session.candles = old_candles
+    stale = await client.get("/quote", params={"instrument_id": 240, "timeframe": "M1"}, headers=HEADERS)
+    assert stale.status_code == 409
+    assert stale.json()["error"]["code"] == "stale_data"
 
 
 @pytest.mark.asyncio

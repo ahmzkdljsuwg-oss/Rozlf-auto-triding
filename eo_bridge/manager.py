@@ -32,6 +32,7 @@ SUPPORTED_PERIODS = tuple(sorted(set(TIMEFRAME_SECONDS.values())))
 
 CONNECT_RETRIES = int(os.getenv("EO_BRIDGE_CONNECT_RETRIES", "3"))
 CONNECT_BACKOFF = float(os.getenv("EO_BRIDGE_CONNECT_BACKOFF", "1.0"))
+QUOTE_MAX_AGE_SECONDS = float(os.getenv("EO_BRIDGE_QUOTE_MAX_AGE_SECONDS", "20"))
 CANDLE_TIMEOUT = float(os.getenv("EO_BRIDGE_CANDLE_TIMEOUT", "20"))
 MAX_SESSIONS = int(os.getenv("EO_BRIDGE_MAX_SESSIONS", "4"))
 SERVER_REGION = os.getenv("EO_BRIDGE_REGION", "EUROPE").upper()
@@ -209,10 +210,17 @@ class Session:
             return cached
         rows = await self.candles(asset_id, period, 2)
         if not rows:
-            if cached:
+            if cached and time.time() - cached.updated_at <= QUOTE_MAX_AGE_SECONDS:
                 return cached
             raise BridgeError("No candles returned for this asset", code="no_candles", status=424)
         last = rows[-1]
+        max_age = period * 2 + QUOTE_MAX_AGE_SECONDS
+        if time.time() - float(last["time"]) > max_age:
+            raise BridgeError(
+                f"Last candle is {int(time.time() - float(last['time']))}s old (limit {int(max_age)}s)",
+                code="stale_data",
+                status=409,
+            )
         quote = Quote(
             price=float(last["close"]),
             time=int(float(last["time"]) * 1000),

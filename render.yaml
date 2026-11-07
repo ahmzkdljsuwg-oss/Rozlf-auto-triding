@@ -43,6 +43,10 @@ services:
         sync: false
       - key: EXPERTOPTION_SESSION_TOKEN
         sync: false
+      - key: EXPERTOPTION_RESTORE_SESSION
+        value: "true"
+      - key: EXPERTOPTION_ALLOW_REAL_READ
+        value: "false"
       - key: EXPERTOPTION_API_BASE_URL
         sync: false
       - key: EXPERTOPTION_API_KEY
@@ -51,6 +55,8 @@ services:
         value: "10000"
       - key: EXPERTOPTION_MIN_CANDLES
         value: "80"
+      - key: ALLOW_INSECURE_DASHBOARD
+        value: "false"
       - key: SCAN_INTERVAL_SECONDS
         value: "60"
 
@@ -71,3 +77,7 @@ services:
         value: EUROPE
       - key: EO_BRIDGE_LOG_LEVEL
         value: INFO
+      - key: EO_BRIDGE_ALLOW_REAL_READ
+        value: "true"
+      - key: EO_BRIDGE_QUOTE_MAX_AGE_SECONDS
+        value: "20"

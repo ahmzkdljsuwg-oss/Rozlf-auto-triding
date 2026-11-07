@@ -1,6 +1,7 @@
 'use strict';
 
 process.env.DASHBOARD_TOKEN = '';
+process.env.ALLOW_INSECURE_DASHBOARD = 'true';
 process.env.REAL_TRADING_APPROVED = 'false';
 process.env.MT5_ENABLED = 'false';
 

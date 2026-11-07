@@ -22,8 +22,17 @@ test('credentials are encrypted with a random IV and decrypt back', () => {
   assert.equal(decryptSecret(first), 'SuperSecret!23');
   assert.equal(decryptSecret('broken'), '');
   assert.equal(maskAccount('12345678'), '12****78');
-  assert.equal(dashboardTokenOk(config.DASHBOARD_TOKEN), true);
-  if (config.DASHBOARD_TOKEN) assert.equal(dashboardTokenOk('nope'), false);
+  if (config.DASHBOARD_TOKEN) {
+    assert.equal(dashboardTokenOk(config.DASHBOARD_TOKEN), true);
+    assert.equal(dashboardTokenOk('nope'), false);
+  } else {
+    assert.equal(dashboardTokenOk(''), false, 'without a configured token /api must stay locked');
+    assert.equal(dashboardTokenOk('anything'), false);
+    const previous = config.ALLOW_INSECURE_DASHBOARD;
+    config.ALLOW_INSECURE_DASHBOARD = true;
+    assert.equal(dashboardTokenOk(''), true, 'explicit local override opens it');
+    config.ALLOW_INSECURE_DASHBOARD = previous;
+  }
 });
 
 test('indicator output stays inside sane bounds', () => {

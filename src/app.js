@@ -65,6 +65,8 @@ function createApp({ engine }) {
       market_data_provider: 'yahoo',
       mt5_enabled: config.MT5_ENABLED && Boolean(config.MT5_BRIDGE_URL),
       expertoption_execution: false,
+      expertoption_real_read: config.EXPERTOPTION_ALLOW_REAL_READ,
+      session_restore_enabled: config.EXPERTOPTION_RESTORE_SESSION,
       real_trading_approved: config.REAL_TRADING_APPROVED,
       simulated_mt5_allowed: config.ALLOW_SIMULATED_MT5,
       speeds: ['slow', 'medium', 'fast'],
@@ -103,7 +105,9 @@ function createApp({ engine }) {
     if (body.server !== undefined && String(body.server).length > 128) errors.push('server is too long');
     if (errors.length) return res.status(422).json({ detail: 'Validation error', errors });
 
-    if (body.account_type === 'real' && !config.REAL_TRADING_APPROVED) {
+    const eoRealRead = body.platform === 'expertoption' && body.account_type === 'real'
+      && config.EXPERTOPTION_ALLOW_REAL_READ;
+    if (body.account_type === 'real' && !config.REAL_TRADING_APPROVED && !eoRealRead) {
       return fail(res, 403, 'Real trading is disabled until explicitly approved');
     }
     try {

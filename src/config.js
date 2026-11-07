@@ -36,6 +36,9 @@ const config = {
 
   SECRET_KEY: env('APP_SECRET_KEY', ''),
   DASHBOARD_TOKEN: env('DASHBOARD_TOKEN', ''),
+  // Fail closed: when no dashboard token is configured, /api stays locked unless
+  // this is explicitly switched on for local development only.
+  ALLOW_INSECURE_DASHBOARD: bool('ALLOW_INSECURE_DASHBOARD', false),
   DATABASE_URL: env('DATABASE_URL', ''),
   DATABASE_PATH: path.resolve(env('DATABASE_PATH', path.join(DATA_DIR, 'rozzlf.db'))),
 
@@ -55,6 +58,8 @@ const config = {
   EXPERTOPTION_BRIDGE_URL: env('EXPERTOPTION_BRIDGE_URL', env('EXPERTOPTION_API_BASE_URL', '')),
   EXPERTOPTION_BRIDGE_KEY: env('EXPERTOPTION_BRIDGE_KEY', env('EXPERTOPTION_API_KEY', '')),
   EXPERTOPTION_SESSION_TOKEN: env('EXPERTOPTION_SESSION_TOKEN', ''),
+  EXPERTOPTION_RESTORE_SESSION: bool('EXPERTOPTION_RESTORE_SESSION', true),
+  EXPERTOPTION_ALLOW_REAL_READ: bool('EXPERTOPTION_ALLOW_REAL_READ', false),
   EXPERTOPTION_API_BASE_URL: env('EXPERTOPTION_API_BASE_URL', ''),
   EXPERTOPTION_API_KEY: env('EXPERTOPTION_API_KEY', ''),
   EXPERTOPTION_API_ACCOUNT: env('EXPERTOPTION_API_ACCOUNT', ''),
