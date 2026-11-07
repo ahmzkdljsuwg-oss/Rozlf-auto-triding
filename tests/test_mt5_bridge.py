@@ -36,6 +36,7 @@ class FakeMT5:
     def __init__(self):
         self.trade_mode = 0
         self.opened = []
+        self.closed = set()
 
     def initialize(self, **kwargs):
         self.trade_mode = 0 if kwargs["login"] == 900123 else 2
@@ -69,7 +70,7 @@ class FakeMT5:
         return [p for p in self.opened if p.ticket == ticket]
 
     def history_deals_get(self, position):
-        if not self.opened:
+        if position not in self.closed:
             return []
         return [
             SimpleNamespace(entry=0, type=0, volume=0.1, price=1.1002, profit=0.0,
@@ -79,7 +80,13 @@ class FakeMT5:
         ]
 
     def order_send(self, payload):
-        ticket = 555001 + len(self.opened)
+        if payload.get("position"):
+            ticket = int(payload["position"])
+            self.opened = [p for p in self.opened if p.ticket != ticket]
+            self.closed.add(ticket)
+            return SimpleNamespace(retcode=self.TRADE_RETCODE_DONE, order=ticket,
+                                  price=payload["price"], comment="closed")
+        ticket = 555001 + len(self.opened) + len(self.closed)
         self.opened.append(SimpleNamespace(
             ticket=ticket, symbol=payload["symbol"],
             type=self.POSITION_TYPE_BUY, volume=payload["volume"],
