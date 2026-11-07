@@ -97,6 +97,11 @@
       state.platform === "mt5" ? "notice.mt5" : "notice.eo"
     );
     $("#server-field").classList.toggle("hidden", state.platform !== "mt5");
+    const isEo = state.platform === "expertoption";
+    $("#credential-label").textContent = t(isEo ? "login.token" : "login.password");
+    $("#credential-input").placeholder = isEo ? "Session Token" : "••••••••";
+    $("#credential-input").autocomplete = isEo ? "off" : "current-password";
+    $("#token-note").classList.toggle("hidden", !isEo);
     $("#login-error").textContent = "";
     showScreen("login");
   }
@@ -116,17 +121,20 @@
     btn.textContent = t("login.working");
     $("#login-error").textContent = "";
     try {
-      await api("/connect", {
-        method: "POST",
-        body: JSON.stringify({
-          platform: state.platform,
-          account_type: state.accountType,
-          login, password, server,
-        }),
-      });
+      const payload = {
+        platform: state.platform,
+        account_type: state.accountType,
+        login, server,
+      };
+      if (state.platform === "expertoption") payload.session_token = password;
+      else payload.password = password;
+      await api("/connect", { method: "POST", body: JSON.stringify(payload) });
       form.reset();
       await enterDashboard();
-      toast(t("login.ok"), "success");
+      toast(
+        state.platform === "expertoption" ? t("login.tokenSaved") : t("login.ok"),
+        "success"
+      );
     } catch (err) {
       $("#login-error").textContent = err.message;
     } finally {
@@ -313,6 +321,23 @@
 
   function renderScanner(scanner) {
     const scan = scanner.scan || {};
+    const src = scanner.source || {};
+    const connection = scanner.connection || {};
+    const account = $("#source-account");
+    const prices = $("#source-prices");
+    const reason = $("#source-reason");
+    if (account) {
+      account.textContent = t(
+        connection.state === "session_attached" ? "scan.accountTokenUnverified" : "scan.accountDisconnected"
+      );
+    }
+    if (prices) prices.textContent = src.account_session_data ? t("scan.sessionData") : t("scan.publicData");
+    if (reason) {
+      reason.textContent = src.account_session_data
+        ? t("scan.sessionDataSource")
+        : t("scan.publicDataSource") + " · " + (src.name || "Yahoo Finance");
+    }
+    $("#scanner-source").classList.toggle("ok", Boolean(src.account_session_data));
     $("#scan-total").textContent = scan.total || 0;
     $("#scan-analyzed").textContent = scan.scanned || 0;
     $("#scan-qualified").textContent = scan.qualified || 0;
@@ -609,6 +634,22 @@
     }
   }
 
+  async function testLoginConnection() {
+    if (state.platform === "expertoption") {
+      try {
+        const session = await api("/expertoption/session");
+        toast(
+          session.token_present ? t("login.eoTokenOnly") : t("login.needLogin"),
+          session.verified ? "success" : "error"
+        );
+      } catch (err) {
+        toast(t("login.eoTokenOnly"), "error");
+      }
+      return;
+    }
+    await testMarket();
+  }
+
   async function testMarket() {
     try {
       const data = await api("/market/test", { method: "POST" });
@@ -781,7 +822,7 @@
     $$("[data-back]").forEach((b) => b.addEventListener("click", () => showScreen(b.dataset.back)));
     $("#to-login").addEventListener("click", goLogin);
     $("#login-form").addEventListener("submit", handleLogin);
-    $("#test-connection").addEventListener("click", testMarket);
+    $("#test-connection").addEventListener("click", testLoginConnection);
     $("#login-form").querySelector(".reveal").addEventListener("click", (e) => {
       const input = e.target.closest(".password-wrap").querySelector("input");
       const showing = input.type === "text";

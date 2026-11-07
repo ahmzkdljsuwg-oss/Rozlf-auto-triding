@@ -509,6 +509,12 @@ button.system-item:hover { border-color: #d7e6fb; }
 .scanner-sub { margin: 0 0 12px; color: var(--muted); font-size: 12.5px; line-height: 1.7; }
 .scanner-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
 .scanner-actions .primary-btn, .scanner-actions .ghost-btn { flex: 1 1 140px; }
+.source-status { background: #fff8e6; border: 1px solid #f5dda0; border-radius: 12px; padding: 10px 11px; margin-bottom: 12px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.source-status div { display: flex; flex-direction: column; gap: 2px; }
+.source-status span { color: #8a6400; font-size: 9.5px; font-weight: 800; }
+.source-status strong { color: #5c4300; font-size: 11.5px; font-weight: 800; }
+.source-status p { grid-column: 1 / -1; margin: 0; color: #7a5300; font-size: 10px; line-height: 1.65; }
+.source-status.ok { background: #e9faf3; border-color: #b7ead9; }
 .scanner-summary { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 10px; }
 @media (min-width: 620px) { .scanner-summary { grid-template-columns: repeat(4, 1fr); } }
 .scanner-summary div { background: var(--bg-soft); border: 1px solid var(--line); border-radius: 12px; padding: 10px; display: flex; flex-direction: column; gap: 3px; }

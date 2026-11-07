@@ -10,6 +10,7 @@ const { RiskManager, DEFAULTS } = require('./risk');
 const { PaperBroker } = require('./brokers/paper');
 const { MT5Broker } = require('./brokers/mt5');
 const { ExpertOptionBroker } = require('./brokers/expertoption');
+const { ExpertOptionSession, SOURCE_REASON_EN, SOURCE_REASON_AR } = require('./expertoption-session');
 const { GeminiAnalyzer } = require('./ai');
 const { TelegramNotifier } = require('./telegram');
 const { renderTradeChart, renderResultChart } = require('./charts');
@@ -31,6 +32,7 @@ class TradingEngine {
 
     this.account = null;
     this.broker = null;
+    this.expertOptionSession = null;
     this.executionMode = 'none';
     this.platform = null;
     this.accountType = null;
@@ -208,7 +210,7 @@ class TradingEngine {
     return this.risk.settings;
   }
 
-  async attachAccount({ platform, accountType, login, password, server = '' }) {
+  async attachAccount({ platform, accountType, login, password, sessionToken = '', server = '' }) {
     if (!['mt5', 'expertoption'].includes(platform)) throw new Error('Unsupported platform');
     if (!['demo', 'real'].includes(accountType)) throw new Error('Unsupported account type');
     if (accountType === 'real' && !config.REAL_TRADING_APPROVED) {
@@ -219,14 +221,20 @@ class TradingEngine {
     }
 
     if (platform === 'expertoption') {
-      // ExpertOption has no approved public trading API. This session is kept
-      // for real market analysis and alerts only; no order is ever executed.
+      // The token is stored encrypted for a future approved integration. It is
+      // never sent to a third party and never treated as proof of connection.
+      const secret = sessionToken || password || '';
       const accountRow = await this.db.upsertAccount(
         platform, accountType, login, server || 'ExpertOption',
-        require('./security').encryptSecret(password || ''), 0,
+        require('./security').encryptSecret(secret), 0,
       );
-      await this.db.setAccountStatus(accountRow.id, 'analysis');
+      await this.db.setAccountStatus(accountRow.id, 'token_unverified');
       this.account = await this.db.getAccount(accountRow.id);
+      this.expertOptionSession = new ExpertOptionSession({
+        login,
+        tokenPresent: Boolean(secret),
+        accountType,
+      });
       this.broker = null;
       this.executionMode = 'analysis_only';
       this.platform = platform;
@@ -242,15 +250,17 @@ class TradingEngine {
       this.accountCurrency = 'USD';
       this.accountSynced = false;
       this.accountSyncAt = null;
-      this.accountSyncError = 'ExpertOption: analysis-only platform; no account balance or execution is available.';
+      this.accountSyncError =
+        'ExpertOption session token stored but not verified: no official account API is available.';
       this.emergency = false;
       this.lastError = null;
       this.opportunities = [];
       this._lastTradeAt.clear();
       this.scanner.reset();
       this.scanner.bindAccount(this.account);
-      await this.db.addLog('info', 'broker', `ExpertOption analysis session for ${login}`, {
+      await this.db.addLog('info', 'broker', `ExpertOption token received for ${login} (unverified)`, {
         mode: 'analysis_only',
+        token_stored: Boolean(secret),
       });
       return this.status();
     }
@@ -341,6 +351,7 @@ class TradingEngine {
     if (this.account) await this.db.setAccountStatus(this.account.id, 'disconnected');
     this.broker = null;
     this.account = null;
+    this.expertOptionSession = null;
     this.running = false;
     this.executionMode = 'none';
     this.analysisOnly = false;
@@ -547,6 +558,26 @@ class TradingEngine {
       account_sync_at: this.accountSyncAt,
       account_sync_error: this.accountSyncError,
       account_status: this.analysisOnly ? 'analysis' : (this.accountSynced ? 'connected' : 'disconnected'),
+      expertoption: this.expertOptionSession ? this.expertOptionSession.status() : null,
+      market_data_source: this.platform === 'expertoption'
+        ? {
+            provider: 'Yahoo Finance',
+            kind: 'public_reference',
+            account_session_data: false,
+            broker_approved: false,
+            available: true,
+            reason_en: SOURCE_REASON_EN,
+            reason_ar: SOURCE_REASON_AR,
+            note_en: 'Analysis uses public reference candles, not ExpertOption account data.',
+            note_ar: 'التحليل يستخدم شموعاً مرجعية عامة وليس بيانات حساب ExpertOption.',
+          }
+        : {
+            provider: 'Yahoo Finance',
+            kind: 'public_reference',
+            account_session_data: false,
+            broker_approved: false,
+            available: true,
+          },
       scanner: this.scannerSummary(),
       analysis_only: this.analysisOnly,
       margin_free: this.marginFree,

@@ -92,8 +92,13 @@ function createApp({ engine }) {
     const errors = [];
     if (!['expertoption', 'mt5'].includes(body.platform)) errors.push('platform must be expertoption or mt5');
     if (!['demo', 'real'].includes(body.account_type)) errors.push('account_type must be demo or real');
-    if (!isText(body.login, 2, 64)) errors.push('login must be 2-64 characters');
-    if (!isText(body.password, 1, 256)) errors.push('password is required');
+    const isExpertOption = body.platform === 'expertoption';
+    if (!isText(body.login, 2, 128)) errors.push('login must be 2-128 characters');
+    if (isExpertOption) {
+      if (!isText(body.session_token, 1, 4096)) errors.push('session_token is required');
+    } else if (!isText(body.password, 1, 256)) {
+      errors.push('password is required');
+    }
     if (body.server !== undefined && String(body.server).length > 128) errors.push('server is too long');
     if (errors.length) return res.status(422).json({ detail: 'Validation error', errors });
 
@@ -105,7 +110,8 @@ function createApp({ engine }) {
         platform: body.platform,
         accountType: body.account_type,
         login: String(body.login),
-        password: String(body.password),
+        password: body.password ? String(body.password) : '',
+        sessionToken: body.session_token ? String(body.session_token) : '',
         server: body.server ? String(body.server) : '',
       });
       return res.json(status);
@@ -115,6 +121,23 @@ function createApp({ engine }) {
       if (/Real trading is disabled|no approved public trading API/i.test(message)) return fail(res, 403, message);
       return fail(res, 502, message);
     }
+  });
+
+  app.get('/api/expertoption/session', async (req, res) => {
+    if (!engine.expertOptionSession) return fail(res, 409, 'No ExpertOption session is attached');
+    res.json(engine.expertOptionSession.status());
+  });
+
+  app.post('/api/expertoption/verify', async (req, res) => {
+    if (!engine.expertOptionSession) return fail(res, 409, 'No ExpertOption session is attached');
+    const status = await engine.expertOptionSession.verify();
+    res.status(409).json({
+      ok: false,
+      detail: status.reason_en,
+      connection_state: status.connection_state,
+      verified: false,
+      official_api_available: false,
+    });
   });
 
   app.post('/api/disconnect', async (req, res) => {

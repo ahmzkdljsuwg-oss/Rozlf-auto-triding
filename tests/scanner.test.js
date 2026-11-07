@@ -57,6 +57,10 @@ test('scanner covers the full catalog without inventing OTC or Smarty', () => {
   assert.equal(status.execution.can_trade, false);
   assert.equal(status.execution.official_integration, false);
   assert.equal(status.expertoption_assets.otc_smarty_available, false);
+  assert.equal(status.expertoption_assets.discovered_from_account, false);
+  assert.equal(status.source.kind, 'public_reference');
+  assert.equal(status.source.account_session_data, false);
+  assert.equal(status.connection.verified, false);
   assert.ok(status.categories.find((c) => c.id === 'otc').unavailable_reason);
   assert.ok(status.categories.find((c) => c.id === 'smarty').unavailable_reason);
   assert.equal(status.markets.filter((r) => r.category === 'otc').length, 0);
@@ -112,7 +116,7 @@ test('scanner API is analysis-only on ExpertOption and blocked elsewhere', async
 
   const connect = await call(base, '/api/connect', {
     method: 'POST',
-    body: { platform: 'expertoption', account_type: 'demo', login: 'demo@example.com', password: 'x' },
+    body: { platform: 'expertoption', account_type: 'demo', login: 'demo@example.com', session_token: 'x' },
   });
   assert.equal(connect.status, 200);
   assert.equal(connect.body.analysis_only, true);
@@ -135,4 +139,19 @@ test('scanner API is analysis-only on ExpertOption and blocked elsewhere', async
   assert.equal(trade.status, 403);
   assert.equal(trade.body.can_trade, false);
   assert.match(trade.body.detail, /approved trading API/);
+});
+
+test('ExpertOption session never reports a token as a verified connection', async () => {
+  const { ExpertOptionSession } = require('../src/expertoption-session');
+  const session = new ExpertOptionSession({ login: 'demo@example.com', tokenPresent: true });
+  const before = session.status();
+  assert.equal(before.connection_state, 'token_saved_unverified');
+  assert.equal(before.connected, false);
+  assert.equal(before.verified, false);
+  assert.equal(before.official_api_available, false);
+  const after = await session.verify();
+  assert.equal(after.verified, false);
+  await assert.rejects(() => session.markets(), /documented API/);
+  await assert.rejects(() => session.candles(), /documented API/);
+  await assert.rejects(() => session.accountInfo(), /documented API/);
 });

@@ -76,13 +76,38 @@ test('validation, real-account block and analysis-only ExpertOption', async (t) 
   });
   assert.equal(real.status, 403);
 
-  const eo = await call(base, '/api/connect', {
+  const eoNoToken = await call(base, '/api/connect', {
     method: 'POST',
     body: { platform: 'expertoption', account_type: 'demo', login: '12345', password: 'secret' },
+  });
+  assert.equal(eoNoToken.status, 422);
+
+  const eo = await call(base, '/api/connect', {
+    method: 'POST',
+    body: {
+      platform: 'expertoption', account_type: 'demo',
+      login: 'demo@example.com', session_token: 'session-token',
+    },
   });
   assert.equal(eo.status, 200);
   assert.equal(eo.body.account_status, 'analysis');
   assert.equal(eo.body.analysis_only, true);
+  assert.equal(eo.body.expertoption.connection_state, 'token_saved_unverified');
+  assert.equal(eo.body.expertoption.verified, false);
+  assert.equal(eo.body.expertoption.token_present, true);
+  assert.equal(eo.body.market_data_source.account_session_data, false);
+  assert.equal(eo.body.market_data_source.provider, 'Yahoo Finance');
+
+  const session = await call(base, '/api/expertoption/session');
+  assert.equal(session.status, 200);
+  assert.equal(session.body.connection_state, 'token_saved_unverified');
+  assert.equal(session.body.token_present, true);
+  assert.equal(JSON.stringify(session.body).includes('session-token'), false);
+
+  const verify = await call(base, '/api/expertoption/verify', { method: 'POST' });
+  assert.equal(verify.status, 409);
+  assert.equal(verify.body.verified, false);
+  assert.equal(verify.body.ok, false);
 });
 
 test('demo connect, status, market test, risk and bot controls', async (t) => {

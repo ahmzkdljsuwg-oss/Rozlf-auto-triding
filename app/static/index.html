@@ -112,12 +112,13 @@
           <input name="login" type="text" placeholder="12345678" autocomplete="username" required minlength="2" />
         </label>
         <label class="field">
-          <span data-i18n="login.password">كلمة المرور</span>
+          <span id="credential-label" data-i18n="login.password">كلمة المرور</span>
           <div class="password-wrap">
-            <input name="password" type="password" placeholder="••••••••" autocomplete="current-password" required />
+            <input id="credential-input" name="password" type="password" placeholder="••••••••" autocomplete="current-password" required />
             <button type="button" class="reveal" data-i18n="login.show">إظهار</button>
           </div>
         </label>
+        <p class="security-note hidden" id="token-note" data-i18n="login.tokenNote">يُحفظ التوكن مشفّراً. لا توجد واجهة ExpertOption موثقة، لذا لن يُعتبر الاتصال ناجحاً ولن تُقرأ بيانات الحساب.</p>
         <p class="security-note" data-i18n="login.security">تُشفّر البيانات محلياً ولا تُرسل إلى Gemini أو Telegram أو الواجهة.</p>
         <div class="form-actions">
           <button type="button" id="test-connection" class="ghost-btn" data-i18n="login.test">اختبار الاتصال</button>
@@ -265,6 +266,11 @@
           <span class="panel-hint" id="scanner-updated">—</span>
         </div>
         <p class="scanner-sub" data-i18n="scan.subtitle">تحليل عام لجميع أسواق المنصة المتاحة، مع ترتيب الفرص حسب قوة الإشارة.</p>
+        <div class="source-status" id="scanner-source">
+          <div><span data-i18n="scan.accountState">حالة الحساب</span><strong id="source-account">—</strong></div>
+          <div><span data-i18n="scan.priceSource">مصدر الأسعار</span><strong id="source-prices">—</strong></div>
+          <p id="source-reason">—</p>
+        </div>
         <div class="scanner-actions">
           <button class="primary-btn compact" id="scanner-start" type="button" data-i18n="scan.startScan">بدء المسح</button>
           <button class="ghost-btn compact" id="scanner-stop" type="button" data-i18n="scan.stopScan">إيقاف المسح</button>

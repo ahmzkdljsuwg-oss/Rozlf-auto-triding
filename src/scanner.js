@@ -79,6 +79,8 @@ class MarketScanner {
         timeframe: 'M15',
         status: 'pending',
         source: 'yahoo',
+        data_source: 'public_reference',
+        session_data: false,
         broker_verified: false,
         last_updated: null,
         error: null,
@@ -217,6 +219,8 @@ class MarketScanner {
         timeframe: 'M15',
         status: qualified ? 'qualified' : 'no_trade',
         source: 'yahoo',
+        data_source: 'public_reference',
+        session_data: false,
         broker_verified: false,
         last_updated: new Date().toISOString(),
         error: null,
@@ -294,8 +298,20 @@ class MarketScanner {
     });
     return {
       scan: { ...this.scan },
-      source: 'Yahoo Finance public reference data',
+      source: {
+        name: 'Yahoo Finance',
+        kind: 'public_reference',
+        account_session_data: false,
+        broker_approved: false,
+        reason_en: 'No approved ExpertOption market-data API is available; rows use public reference candles.',
+        reason_ar: 'لا توجد واجهة ExpertOption موثقة لبيانات السوق؛ الصفوف تستخدم شموعاً مرجعية عامة.',
+      },
       account: this._account,
+      connection: {
+        state: this._account ? 'session_attached' : 'disconnected',
+        account_synced: false,
+        verified: false,
+      },
       auto: this._auto,
       auto_interval_seconds: Math.round(this._autoIntervalMs / 1000),
       categories,
@@ -308,10 +324,12 @@ class MarketScanner {
       },
       expertoption_assets: {
         official_discovery: false,
-        account_specific: true,
+        discovered_from_account: false,
+        account_specific: false,
         otc_smarty_available: false,
-        reason: 'No approved ExpertOption asset endpoint. OTC and Smarty instruments are account-specific '
-          + 'and are not invented here; the catalog covers public reference markets only.',
+        reason: 'No approved ExpertOption asset endpoint. The account asset list, OTC and Smarty '
+          + 'instruments cannot be read; the catalog covers public reference markets only and is '
+          + 'not presented as the connected account list.',
       },
     };
   }
