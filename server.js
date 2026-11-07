@@ -19,7 +19,11 @@ async function main() {
   }
   const engine = await new TradingEngine({ db }).init();
   const telegramBot = new TelegramBotController({ notifier: engine.telegram, engine });
+  engine.telegramBot = telegramBot;
   await telegramBot.start();
+  // Render restarts and transient Telegram outages must not leave the bot silent.
+  const botWatchdog = setInterval(() => { telegramBot.ensureStarted().catch(() => {}); }, 60000);
+  botWatchdog.unref();
   await db.addLog('info', 'app', `ROZLF AUTO TRADER ${config.APP_VERSION} starting`);
 
   const app = createApp({ engine });
@@ -34,6 +38,7 @@ async function main() {
     shuttingDown = true;
     console.log(`Received ${signal}, shutting down`);
     server.close();
+    clearInterval(botWatchdog);
     try { await telegramBot.stop(); } catch { /* ignore */ }
     try { await engine.shutdown(); } catch { /* ignore */ }
     try { await db.close(); } catch { /* ignore */ }

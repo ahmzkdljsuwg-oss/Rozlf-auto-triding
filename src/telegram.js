@@ -4,6 +4,11 @@ const fs = require('fs');
 const path = require('path');
 const config = require('./config');
 
+function timedOutText(err) {
+  const name = err && err.name;
+  return name === 'TimeoutError' || name === 'AbortError' ? 'Telegram request timed out' : '';
+}
+
 function escapeHtml(value) {
   return String(value ?? '')
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -22,20 +27,46 @@ function humanDuration(startIso, endIso = null) {
 }
 
 class TelegramNotifier {
-  constructor(token = config.TELEGRAM_BOT_TOKEN, chatId = config.TELEGRAM_CHAT_ID) {
+  constructor(
+    token = config.TELEGRAM_BOT_TOKEN,
+    chatId = config.TELEGRAM_CHAT_ID,
+    apiBase = config.TELEGRAM_API_BASE,
+  ) {
     this.token = token;
     this.chatId = chatId;
+    this.apiBase = String(apiBase || 'https://api.telegram.org').replace(/\/+$/, '');
   }
 
   get enabled() {
     return Boolean(this.token && this.chatId);
   }
 
-  async api(method, payload, timeoutMs = 20000) {
-    if (!this.enabled) return { ok: false, error: 'Telegram is not configured' };
-    const url = `https://api.telegram.org/bot${this.token}/${method}`;
+  get tokenConfigured() {
+    return Boolean(this.token);
+  }
+
+  _url(method) {
+    return `${this.apiBase}/bot${this.token}/${method}`;
+  }
+
+  _netError(err) {
+    const name = err && err.name;
+    const message = timedOutText(err) || String((err && err.message) || err);
+    return {
+      ok: false,
+      error: message,
+      error_code: 0,
+      network: true,
+      timeout: name === 'TimeoutError' || name === 'AbortError',
+    };
+  }
+
+  // Retries once on 429 (honouring retry_after) and reports 409/401 distinctly so
+  // the polling loop can act on a webhook conflict or a revoked token.
+  async api(method, payload, timeoutMs = 20000, attempt = 0) {
+    if (!this.tokenConfigured) return { ok: false, error: 'Telegram bot token is not configured', error_code: 0 };
     try {
-      const response = await fetch(url, {
+      const response = await fetch(this._url(method), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -43,12 +74,47 @@ class TelegramNotifier {
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || data.ok === false) {
-        return { ok: false, error: String(data.description || `HTTP ${response.status}`).slice(0, 180) };
+        const code = Number(data.error_code || response.status || 0);
+        if (code === 429 && attempt < 1) {
+          const waitMs = Math.min(5000, Math.max(500, Number(data.parameters && data.parameters.retry_after || 2) * 1000));
+          await new Promise((r) => setTimeout(r, waitMs));
+          return this.api(method, payload, timeoutMs, attempt + 1);
+        }
+        return {
+          ok: false,
+          error: String(data.description || `HTTP ${response.status}`).slice(0, 180),
+          error_code: code,
+          retry_after: data.parameters ? data.parameters.retry_after || null : null,
+          webhook_conflict: code === 409,
+          unauthorized: code === 401 || code === 404,
+        };
       }
       return { ok: true, result: data.result };
     } catch (err) {
-      return { ok: false, error: String(err.message).slice(0, 180) };
+      return this._netError(err);
     }
+  }
+
+  async getMe() {
+    const res = await this.api('getMe', {}, 15000);
+    if (!res.ok) return res;
+    return { ok: true, result: res.result, username: res.result && res.result.username };
+  }
+
+  async getWebhookInfo() {
+    return this.api('getWebhookInfo', {}, 15000);
+  }
+
+  async deleteWebhook() {
+    return this.api('deleteWebhook', { drop_pending_updates: false }, 15000);
+  }
+
+  async getChat() {
+    if (!this.chatId) return { ok: false, error: 'TELEGRAM_CHAT_ID is not configured' };
+    const res = await this.api('getChat', { chat_id: this.chatId }, 15000);
+    if (!res.ok) return res;
+    const chat = res.result || {};
+    return { ok: true, result: chat, title: chat.title || chat.username || chat.first_name || '' };
   }
 
   async sendMessage(text, replyMarkup = null) {
@@ -141,7 +207,7 @@ class TelegramNotifier {
   async sendPhoto(filePath, caption) {
     if (!this.enabled) return { ok: false, error: 'Telegram is not configured' };
     if (!filePath || !fs.existsSync(filePath)) return { ok: false, error: 'Chart file not found' };
-    const url = `https://api.telegram.org/bot${this.token}/sendPhoto`;
+    const url = this._url('sendPhoto');
     try {
       const buffer = await fs.promises.readFile(filePath);
       const form = new FormData();
@@ -156,7 +222,7 @@ class TelegramNotifier {
       }
       return { ok: true };
     } catch (err) {
-      return { ok: false, error: String(err.message).slice(0, 180) };
+      return this._netError(err);
     }
   }
 
@@ -249,16 +315,16 @@ class TelegramNotifier {
       `<b>الأصل:</b> ${escapeHtml(asset.name || result.asset_id || '—')}${asset.otc ? ' (OTC)' : ''}`,
       `<b>المدة:</b> ${escapeHtml(result.expiry_label_ar || result.expiry || '—')}`,
       `<b>النتيجة:</b> ${labels[result.direction] || labels['NO TRADE']}`,
-      `<b>السعر الحالي:</b> ${result.price ?? '—'}`,
+      `<b>السعر الحالي:</b> ${escapeHtml(result.price ?? '—')}`,
       `<b>آخر تحديث للبيانات:</b> ${escapeHtml(result.price_time || '—')}`,
       `<b>الاتجاه:</b> ${escapeHtml(result.trend || '—')}`,
       `<b>الثقة التقديرية:</b> ${Math.round(Number(result.confidence || 0) * 100)}%`,
       '',
       '<b>المؤشرات</b>',
-      `RSI: ${ind.rsi ?? '—'} | MACD: ${ind.macd ?? '—'} (hist ${ind.macd_hist ?? '—'})`,
-      `EMA20/50/200: ${ind.ema20 ?? '—'} / ${ind.ema50 ?? '—'} / ${ind.ema200 ?? '—'}`,
-      `ADX: ${ind.adx ?? '—'} | ATR: ${ind.atr ?? '—'}`,
-      `الدعم: ${sr.support ?? '—'} | المقاومة: ${sr.resistance ?? '—'}`,
+      `RSI: ${escapeHtml(ind.rsi ?? '—')} | MACD: ${escapeHtml(ind.macd ?? '—')} (hist ${escapeHtml(ind.macd_hist ?? '—')})`,
+      `EMA20/50/200: ${escapeHtml(ind.ema20 ?? '—')} / ${escapeHtml(ind.ema50 ?? '—')} / ${escapeHtml(ind.ema200 ?? '—')}`,
+      `ADX: ${escapeHtml(ind.adx ?? '—')} | ATR: ${escapeHtml(ind.atr ?? '—')}`,
+      `الدعم: ${escapeHtml(sr.support ?? '—')} | المقاومة: ${escapeHtml(sr.resistance ?? '—')}`,
     ];
     const reasons = Array.isArray(result.reasons_ar) ? result.reasons_ar.slice(0, 6) : [];
     if (reasons.length) {

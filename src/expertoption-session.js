@@ -178,6 +178,47 @@ class ExpertOptionSession {
     };
   }
 
+  // Reachability probe for the bridge service itself (no secrets, no market data).
+  async diagnostics() {
+    let host = '';
+    try { host = this.baseUrl ? new URL(this.baseUrl).host : ''; } catch { host = ''; }
+    const base = { configured: this.configured, bridge_host: host, reachable: false };
+    if (!this.baseUrl) return { ...base, error: 'EXPERTOPTION_BRIDGE_URL is not set' };
+    const startedAt = Date.now();
+    try {
+      const headers = { Accept: 'application/json' };
+      if (this.bridgeKey) headers.Authorization = `Bearer ${this.bridgeKey}`;
+      const response = await this.fetchImpl(`${this.baseUrl}/health`, {
+        method: 'GET', headers, signal: AbortSignal.timeout(Math.min(this.timeoutMs, 10000)),
+      });
+      const latency = Date.now() - startedAt;
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        return { ...base, latency_ms: latency, status: response.status, error: `Bridge health returned HTTP ${response.status}` };
+      }
+      return {
+        ...base,
+        reachable: true,
+        latency_ms: latency,
+        service: data.service || null,
+        version: data.version || null,
+        demo_only: Boolean(data.demo_only),
+        trading_enabled: Boolean(data.trading_enabled),
+        read_any_account: Boolean(data.read_any_account),
+        key_configured: Boolean(data.key_configured),
+        session_connected: Boolean(data.session_connected ?? data.connected),
+        upstream: data.upstream || null,
+      };
+    } catch (err) {
+      const timedOut = err && (err.name === 'TimeoutError' || err.name === 'AbortError');
+      return {
+        ...base,
+        latency_ms: Date.now() - startedAt,
+        error: timedOut ? 'Bridge health check timed out' : `Bridge unreachable: ${err.message}`,
+      };
+    }
+  }
+
   async _throttle() {
     if (!this.minIntervalMs) return;
     const wait = this._lastRequestAt + this.minIntervalMs - Date.now();

@@ -125,3 +125,30 @@ ROZLF_URL=https://<backend-host> DASHBOARD_TOKEN=... \
   بـ `409 stale_data`، والـ backend يحوّلها إلى NO TRADE برمز `stale_data`.
 - القراءة تعتمد على قائمة أصول الحساب نفسه؛ الأصول غير الموجودة في الحساب تُظهر
   NO TRADE برمز واضح، ولا تُستبدل ببيانات فوركس عادية.
+
+## 6. تشخيص سريع بعد النشر
+
+ثلاثة مسارات للتحقق دون كشف أي سر (كلها محمية بـ `DASHBOARD_TOKEN`):
+
+```bash
+# 1) هل يصل الـ backend إلى خدمة الربط؟
+curl -s -H "Authorization: Bearer $DASHBOARD_TOKEN" \
+  https://<backend>.onrender.com/api/expertoption/bridge-check
+#    reachable=true + session_connected=true  ⇒ الربط سليم
+#    reachable=false + error                  ⇒ EXPERTOPTION_BRIDGE_URL أو الخدمة متوقفة
+
+# 2) هل يرى البوت التوكن والمحادثة؟
+curl -s -H "Authorization: Bearer $DASHBOARD_TOKEN" \
+  https://<backend>.onrender.com/api/telegram/status
+#    token_configured / chat_configured / health / last_error
+
+# 3) إرسال رسالة اختبار حقيقية إلى المحادثة
+curl -s -X POST -H "Authorization: Bearer $DASHBOARD_TOKEN" \
+  https://<backend>.onrender.com/api/telegram/test
+#    يعيد bot_username وchat_title وnotifications_enabled
+```
+
+سببان شائعان لصمت البوت: `TELEGRAM_CHAT_ID` لا يطابق محادثة المالك (يرد البوت
+بمعرّف المحادثة الصحيح عند كتابة أي رسالة)، أو وجود Webhook قديم (يمسحه البوت
+تلقائيًا عند خطأ 409 ثم يستأنف الاستقبال). البوت يُراقَب كل 60 ثانية عبر
+`ensureStarted()` فلا يبقى متوقفًا بعد إعادة تشغيل Render.

@@ -278,3 +278,65 @@ test('ExpertOption auto analysis refuses to answer without the authorized sessio
   assert.equal(analysis.body.data_verified, false);
   assert.ok(analysis.body.reason_ar);
 });
+
+test('Telegram status and test routes report real wiring instead of guessing', async (t) => {
+  const { base, engine } = await boot(t);
+  const off = await call(base, '/api/telegram/status');
+  assert.equal(off.status, 200);
+  assert.equal(off.body.configured, false);
+  assert.equal(off.body.health, 'not_attached');
+
+  const refused = await call(base, '/api/telegram/test', { method: 'POST', body: {} });
+  assert.equal(refused.status, 409);
+  assert.match(String(refused.body.detail || refused.body.error || ''), /TELEGRAM_BOT_TOKEN|TELEGRAM_CHAT_ID/);
+
+  const http = require('node:http');
+  const calls = [];
+  const mock = http.createServer((req, res) => {
+    const chunks = [];
+    req.on('data', (c) => chunks.push(c));
+    req.on('end', () => {
+      const method = String(req.url).split('/').pop();
+      calls.push({ method, body: JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}') });
+      const result = method === 'getMe'
+        ? { id: 1, is_bot: true, username: 'rozlf_test_bot' }
+        : { id: 777001, type: 'private', title: 'Owner Chat' };
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, result }));
+    });
+  });
+  await new Promise((resolve) => mock.listen(0, '127.0.0.1', resolve));
+  t.after(() => mock.close());
+
+  engine.telegram = new TelegramNotifier('TEST-TOKEN', '777001', `http://127.0.0.1:${mock.address().port}`);
+  const { TelegramBotController } = require('../src/telegram_bot');
+  engine.telegramBot = new TelegramBotController({ notifier: engine.telegram, engine });
+
+  const status = await call(base, '/api/telegram/status');
+  assert.equal(status.body.configured, true);
+  assert.equal(status.body.token_configured, true);
+  assert.equal(status.body.chat_id_masked.endsWith('7001'), true);
+
+  const sent = await call(base, '/api/telegram/test', { method: 'POST', body: {} });
+  assert.equal(sent.status, 200);
+  assert.equal(sent.body.ok, true);
+  assert.equal(sent.body.bot_username, 'rozlf_test_bot');
+  assert.equal(sent.body.chat_title, 'Owner Chat');
+  assert.ok(calls.some((c) => c.method === 'sendMessage'));
+});
+
+test('bridge-check reports an unconfigured bridge without inventing data', async (t) => {
+  const { base } = await boot(t);
+  const noSession = await call(base, '/api/expertoption/bridge-check');
+  assert.equal(noSession.status, 409);
+
+  await call(base, '/api/connect', {
+    method: 'POST', body: { platform: 'expertoption', account_type: 'demo', login: 'demo@example.com', session_token: 'demo-token' },
+  });
+  const res = await call(base, '/api/expertoption/bridge-check');
+  assert.equal(res.status, 409);
+  assert.equal(res.body.configured, false);
+  assert.equal(res.body.reachable, false);
+  assert.match(String(res.body.error), /EXPERTOPTION_BRIDGE_URL/);
+  assert.equal(res.body.execution_allowed, false);
+});

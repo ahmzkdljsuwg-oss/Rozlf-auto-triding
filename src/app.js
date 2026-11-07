@@ -177,6 +177,52 @@ function createApp({ engine }) {
     });
   });
 
+  app.get('/api/expertoption/bridge-check', async (req, res) => {
+    const session = engine.expertOptionSession;
+    if (!session) return fail(res, 409, 'No ExpertOption session is attached');
+    const bridge = session.diagnostics ? await session.diagnostics() : { configured: false };
+    res.status(bridge.reachable ? 200 : 409).json({ ...bridge, execution_allowed: false });
+  });
+
+  app.get('/api/telegram/status', async (req, res) => {
+    const bot = engine.telegramBot;
+    const status = bot ? bot.status() : { configured: false, running: false, health: 'not_attached' };
+    res.json({ ...status, notifications_enabled: Boolean(engine.telegram && engine.telegram.enabled) });
+  });
+
+  app.post('/api/telegram/test', async (req, res) => {
+    const notifier = engine.telegram;
+    if (!notifier || !notifier.tokenConfigured) {
+      return fail(res, 409, 'TELEGRAM_BOT_TOKEN غير مهيأ على الخادم.');
+    }
+    if (!notifier.chatId) return fail(res, 409, 'TELEGRAM_CHAT_ID غير مهيأ على الخادم.');
+    const me = await notifier.getMe();
+    if (!me.ok) {
+      await engine.db.addLog('warn', 'telegram', `Telegram getMe failed: ${me.error}`).catch(() => {});
+      return res.status(502).json({ ok: false, step: 'getMe', error: me.error, error_code: me.error_code || 0 });
+    }
+    const chat = await notifier.getChat();
+    if (!chat.ok) {
+      return res.status(502).json({ ok: false, step: 'getChat', error: chat.error, bot_username: me.username || '' });
+    }
+    const sent = await notifier.sendMessage([
+      '✅ <b>اختبار الاتصال</b>',
+      'ROZLF AUTO TRADER متصل ببوت Telegram بنجاح.',
+      `البوت: @${me.username || '—'}`,
+      `المحادثة: ${chat.title || chat.result.id}`,
+    ].join('\n'));
+    if (!sent.ok) {
+      return res.status(502).json({ ok: false, step: 'sendMessage', error: sent.error, bot_username: me.username || '' });
+    }
+    return res.json({
+      ok: true,
+      bot_username: me.username || '',
+      chat_title: chat.title || '',
+      chat_id_masked: notifier.chatId ? `${'*'.repeat(Math.max(0, String(notifier.chatId).length - 4))}${String(notifier.chatId).slice(-4)}` : '',
+      notifications_enabled: notifier.enabled,
+    });
+  });
+
   app.get('/api/expertoption/assets', async (req, res) => {
     if (!engine.account || engine.platform !== 'expertoption') {
       return fail(res, 409, 'اتصل بجلسة ExpertOption أولاً.');

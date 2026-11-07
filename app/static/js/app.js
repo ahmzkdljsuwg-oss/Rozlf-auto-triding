@@ -457,6 +457,7 @@
 
     $("#market-state").textContent = s.market_connected ? t("dash.marketOk") : t("dash.marketOff");
     $("#telegram-state").textContent = s.telegram_enabled ? t("dash.tgReady") : t("dash.tgOff");
+    refreshTelegramStatus();
     $("#ai-state").textContent = s.ai_enabled ? t("dash.aiReady") : t("dash.aiUnavailable");
 
     const platformLabel = s.platform === "mt5" ? "MT5" : s.platform === "expertoption" ? "ExpertOption" : "—";
@@ -835,12 +836,39 @@
     }
   }
 
+  let telegramStatusAt = 0;
+
+  async function refreshTelegramStatus(force = false) {
+    if (!force && Date.now() - telegramStatusAt < 30000) return;
+    telegramStatusAt = Date.now();
+    const el = $("#telegram-state");
+    if (!el) return;
+    try {
+      const s = await api("/telegram/status");
+      if (!s.configured) {
+        el.textContent = t("dash.tgOff");
+        el.title = s.last_error || "";
+        return;
+      }
+      const label = s.health === "ok"
+        ? t("dash.tgRunning")
+        : (s.health === "error" || s.health === "unauthorized") ? t("dash.tgError") : t("dash.tgIdle");
+      el.textContent = (s.bot_username ? "@" + s.bot_username + " · " : "") + label;
+      el.title = s.last_error || "";
+    } catch {
+      /* status endpoint is best effort */
+    }
+  }
+
   async function testTelegram() {
     try {
-      await api("/telegram/test", { method: "POST" });
-      toast(t("toast.tgOk"), "success");
+      const result = await api("/telegram/test", { method: "POST" });
+      toast((result.bot_username ? "@" + result.bot_username + " — " : "") + t("toast.tgOk"), "success");
+      refreshTelegramStatus(true);
     } catch (err) {
-      toast(t("toast.tgFail") + ": " + err.message, "error");
+      const step = err.data && err.data.step ? " [" + err.data.step + "]" : "";
+      toast(t("toast.tgFail") + step + ": " + err.message, "error");
+      refreshTelegramStatus(true);
     }
   }
 

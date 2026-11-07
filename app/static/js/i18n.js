@@ -94,6 +94,9 @@ const DICT = {
     "dash.aiReady": "جاهز",
     "dash.tgReady": "مهيأ",
     "dash.tgOff": "غير مهيأ",
+    "dash.tgRunning": "البوت يعمل",
+    "dash.tgIdle": "متوقف عن الاستقبال",
+    "dash.tgError": "خطأ في الاستقبال",
     "dash.marketOk": "متصل",
     "dash.marketOff": "غير متصل",
 
@@ -290,6 +293,9 @@ const DICT = {
     "dash.aiReady": "Ready",
     "dash.tgReady": "Configured",
     "dash.tgOff": "Not configured",
+    "dash.tgRunning": "bot listening",
+    "dash.tgIdle": "not polling",
+    "dash.tgError": "polling error",
     "dash.marketOk": "Connected",
     "dash.marketOff": "Disconnected",
 

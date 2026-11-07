@@ -2,6 +2,7 @@
 
 const config = require('./config');
 const { getSpeedPreset } = require('./speed');
+const { escapeHtml } = require('./telegram');
 const settingsUtil = require('./settings');
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -27,54 +28,158 @@ class TelegramBotController {
     this._lastError = '';
     this._pending = new Map();
     this.eoSelection = new Map();
+    this._denied = new Set();
+    this._backoffMs = 5000;
+    this._offsetLoaded = false;
+    this.health = 'idle';
+    this.lastPollAt = null;
+    this.lastUpdateAt = null;
+    this.lastOkAt = null;
+    this.botUsername = '';
   }
 
   get enabled() {
     return Boolean(this.notifier && this.notifier.enabled);
   }
 
+  _log(level, message) {
+    return this.engine.db.addLog(level, 'telegram', message).catch(() => {});
+  }
+
   async start() {
-    if (!this.enabled || this.running) return;
+    if (this.running) return this.status();
+    if (!this.notifier || !this.notifier.tokenConfigured) {
+      this.health = 'token_missing';
+      await this._log('warn', 'Telegram bot token is not configured; command polling stays disabled');
+      return this.status();
+    }
+    if (!this.notifier.chatId) {
+      this.health = 'chat_missing';
+      await this._log('warn', 'Telegram chat id is not configured; notifications are disabled until TELEGRAM_CHAT_ID is set');
+      return this.status();
+    }
     this.running = true;
+    this.health = 'starting';
     this._loopPromise = this._loop();
+    return this.status();
+  }
+
+  async ensureStarted() {
+    if (this.running) return this.status();
+    if (!this.enabled) return this.status();
+    await this._log('info', 'Telegram polling was not running; restarting the bot listener');
+    return this.start();
   }
 
   async stop() {
+    const wasRunning = this.running;
     this.running = false;
-    if (this.notifier) {
+    this.health = 'stopped';
+    if (wasRunning) {
       try { await this.notifier.api('getUpdates', { offset: this.offset, timeout: 0 }, 5000); } catch { /* ignore */ }
     }
   }
 
-  async _loop() {
-    while (this.running) {
-      let response;
-      try {
-        response = await this.notifier.api('getUpdates', {
-          offset: this.offset, timeout: 20, allowed_updates: ['message', 'callback_query'],
-        }, 30000);
-      } catch (err) {
-        response = { ok: false, error: err.message };
+  async _loadOffset() {
+    if (this._offsetLoaded) return;
+    this._offsetLoaded = true;
+    try {
+      const stored = Number(await this.engine.db.getSetting('telegram.offset', 0)) || 0;
+      if (stored > 0) {
+        this.offset = stored;
+        return;
       }
+      // No stored offset: consume the backlog cursor instead of replaying weeks of old commands.
+      const last = await this.notifier.api('getUpdates', { offset: -1, timeout: 0, limit: 1 }, 15000);
+      if (last.ok && Array.isArray(last.result) && last.result.length) {
+        this.offset = Number(last.result[last.result.length - 1].update_id) + 1;
+        await this._saveOffset();
+      }
+    } catch { /* ignore: polling will still work from offset 0 */ }
+  }
+
+  async _saveOffset() {
+    try { await this.engine.db.setSetting('telegram.offset', this.offset); } catch { /* ignore */ }
+  }
+
+  async _loop() {
+    await this._loadOffset();
+    while (this.running) {
+      const me = await this.notifier.getMe();
+      if (me.ok) this.botUsername = me.username || '';
+      const response = await this.notifier.api('getUpdates', {
+        offset: this.offset,
+        timeout: Math.max(1, Math.min(50, Number(config.TELEGRAM_POLL_SECONDS) || 20)),
+        allowed_updates: ['message', 'callback_query'],
+      }, 30000);
+      this.lastPollAt = new Date().toISOString();
       if (!this.running) break;
+
       if (!response.ok) {
+        this.health = 'error';
+        if (response.webhook_conflict) {
+          this.health = 'webhook_conflict';
+          const cleared = await this.notifier.deleteWebhook();
+          await this._log(cleared.ok ? 'warn' : 'error', cleared.ok
+            ? 'Telegram had a webhook set (getUpdates conflicted); the webhook was removed so polling can continue'
+            : `Telegram webhook conflict and deleteWebhook failed: ${cleared.error}`);
+          await sleep(1500);
+          continue;
+        }
+        if (response.unauthorized) {
+          this.health = 'unauthorized';
+          this.running = false;
+          this._lastError = response.error;
+          await this._log('error', `Telegram rejected the bot token (${response.error}). Update TELEGRAM_BOT_TOKEN and redeploy.`);
+          break;
+        }
         if (response.error !== this._lastError) {
           this._lastError = response.error;
-          await this.engine.db.addLog('warn', 'telegram', `Telegram polling failed: ${response.error}`).catch(() => {});
+          await this._log('warn', `Telegram polling failed: ${response.error}`);
         }
-        await sleep(5000);
+        await sleep(this._backoffMs);
+        this._backoffMs = Math.min(60000, this._backoffMs * 2);
         continue;
       }
+
+      this._backoffMs = 5000;
+      this.health = 'ok';
       this._lastError = '';
+      this.lastOkAt = this.lastPollAt;
       const updates = Array.isArray(response.result) ? response.result : [];
-      for (const update of updates) {
-        this.offset = Math.max(this.offset, Number(update.update_id) + 1);
-        try { await this._handle(update); } catch (err) {
-          await this.engine.db.addLog('warn', 'telegram', `Telegram update failed: ${err.message}`).catch(() => {});
+      if (updates.length) {
+        this.lastUpdateAt = new Date().toISOString();
+        for (const update of updates) {
+          this.offset = Math.max(this.offset, Number(update.update_id) + 1);
+          try { await this._handle(update); } catch (err) {
+            await this._log('warn', `Telegram update failed: ${err.message}`);
+          }
         }
+        await this._saveOffset();
+      } else {
+        await sleep(300);
       }
-      if (!updates.length) await sleep(300);
     }
+    if (this.health !== 'error' && this.health !== 'unauthorized') this.health = 'stopped';
+  }
+
+  status() {
+    const chatId = String(this.notifier && this.notifier.chatId || '');
+    const masked = chatId.length > 4 ? `${'*'.repeat(chatId.length - 4)}${chatId.slice(-4)}` : chatId;
+    return {
+      configured: Boolean(this.notifier && this.notifier.enabled),
+      token_configured: Boolean(this.notifier && this.notifier.tokenConfigured),
+      chat_configured: Boolean(chatId),
+      chat_id_masked: masked,
+      bot_username: this.botUsername || '',
+      running: this.running,
+      health: this.health,
+      last_error: this._lastError || null,
+      last_poll_at: this.lastPollAt,
+      last_ok_at: this.lastOkAt,
+      last_update_at: this.lastUpdateAt,
+      offset: this.offset,
+    };
   }
 
   _authorized(chatId) {
@@ -491,6 +596,33 @@ class TelegramBotController {
       return;
     }
 
+    if (lower === '/id' || lower === '/chatid') {
+      return this.notifier.api('sendMessage', {
+        chat_id: chatId,
+        text: `🆔 معرّف هذه المحادثة: <code>${escapeHtml(chatId)}</code>`,
+        parse_mode: 'HTML',
+      }, 15000);
+    }
+    if (lower === '/ping') {
+      return this.notifier.sendMessage([
+        '🏓 <b>البوت يستجيب</b>',
+        `الاتصال بـ Telegram: ${this.health === 'ok' ? 'سليم ✅' : this.health}`,
+        `آخر استلام: ${this.lastUpdateAt || '—'}`,
+      ].join('\n'), this.notifier.mainKeyboard());
+    }
+    if (lower === '/test') {
+      const sent = await this.notifier.sendMessage('✅ <b>اختبار Telegram</b>\nالرسائل تعمل من ROZLF AUTO TRADER.', this.notifier.mainKeyboard());
+      if (!sent.ok) await this._log('warn', `Telegram test message failed: ${sent.error}`);
+      return sent;
+    }
+    if (lower === '/eo') {
+      const listing = await this.engine.expertOptionAssets();
+      return this.notifier.sendMessage([
+        '📊 <b>ExpertOption — التحليل فقط</b>',
+        listing.ok ? `أصول متاحة من جلستك: ${listing.available}` : `⚠️ ${listing.detail_ar || listing.detail || 'الأصول غير متاحة.'}`,
+        listing.ok ? 'اختر أصلاً من الأزرار ثم مدة التحليل.' : 'لن أعرض إشارة من دون بيانات حقيقية من جلسة الحساب.',
+      ].join('\n'), this.expertOptionAssetsKeyboard(listing.ok ? listing.assets : []));
+    }
     if (lower === '/speed') return this.notifier.sendSpeedMenu(this.engine.speed);
     if (lower === '/menu') return this.notifier.sendMessage('🤖 <b>لوحة التحكم</b>', this.notifier.mainKeyboard());
     if (lower === '/status') return this.notifier.sendMessage(await this.statusText(), this.notifier.mainKeyboard());
@@ -503,6 +635,8 @@ class TelegramBotController {
         '🤖 <b>ROZLF AUTO TRADER</b>',
         'ExpertOption للتحليل والإشعارات، وقسم التداول مخصص لـ MT5. اختر القسم من الأزرار أدناه.',
         'التداول الحقيقي معطّل. لا تُنشأ صفقة قبل تأكيد الوسيط لها.',
+        '',
+        'الأوامر: /menu /status /eo /speed /test /ping /id /stop',
       ].join('\n'), this.notifier.mainKeyboard());
     }
   }
@@ -510,8 +644,29 @@ class TelegramBotController {
   async _handle(update) {
     if (update.callback_query) return this._handleCallback(update.callback_query);
     const message = update.message;
-    if (!message || !this._authorized(message.chat && message.chat.id)) return;
+    if (!message) return;
+    const chatId = message.chat && message.chat.id;
+    if (!this._authorized(chatId)) return this._deny(chatId);
     return this._handleMessage(message);
+  }
+
+  // Tells the owner which chat id messaged the bot, which is the usual reason a
+  // freshly deployed bot stays silent (TELEGRAM_CHAT_ID not matching).
+  async _deny(chatId) {
+    if (chatId === undefined || chatId === null) return;
+    const key = String(chatId);
+    if (this._denied.has(key)) return;
+    this._denied.add(key);
+    await this._log('warn', `Telegram message rejected from chat ${key}: it is not TELEGRAM_CHAT_ID`);
+    await this.notifier.api('sendMessage', {
+      chat_id: key,
+      text: [
+        '⛔ <b>هذا البوت مرتبط بحساب مالك واحد فقط.</b>',
+        `معرّف هذه المحادثة: <code>${escapeHtml(key)}</code>`,
+        'إن كنت المالك: ضع هذا الرقم في المتغير TELEGRAM_CHAT_ID في Render ثم أعد النشر.',
+      ].join('\n'),
+      parse_mode: 'HTML',
+    }, 15000);
   }
 
   async statusText() {

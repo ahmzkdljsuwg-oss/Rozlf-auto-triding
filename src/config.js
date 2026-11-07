@@ -49,6 +49,8 @@ const config = {
   MISTRAL_MODEL: env('MISTRAL_MODEL', 'mistral-small-latest'),
   TELEGRAM_BOT_TOKEN: env('TELEGRAM_BOT_TOKEN', ''),
   TELEGRAM_CHAT_ID: env('TELEGRAM_CHAT_ID', ''),
+  TELEGRAM_API_BASE: env('TELEGRAM_API_BASE', 'https://api.telegram.org'),
+  TELEGRAM_POLL_SECONDS: Number(env('TELEGRAM_POLL_SECONDS', '20')),
   // Optional private session cookie. Never expose it to the browser or logs.
   EXPERTOPTION_SESSION_COOKIE: env('EXPERTOPTION_SESSION_COOKIE', ''),
 
