@@ -35,6 +35,7 @@ const config = {
   PORT: Number(env('PORT', 8000)),
 
   SECRET_KEY: env('APP_SECRET_KEY', ''),
+  SECRET_KEY_PREVIOUS: env('APP_SECRET_KEY_PREVIOUS', ''),
   DASHBOARD_TOKEN: env('DASHBOARD_TOKEN', ''),
   // Fail closed: when no dashboard token is configured, /api stays locked unless
   // this is explicitly switched on for local development only.

@@ -253,3 +253,20 @@ async def test_a_lost_connection_reports_an_error_instead_of_stale_data(client, 
     lost = await client.get("/quote", params={"instrument_id": 240, "timeframe": "M1"}, headers=HEADERS)
     assert lost.status_code == 502
     assert lost.json()["error"]["code"] == "connect_failed"
+
+
+@pytest.mark.asyncio
+async def test_a_restarted_bridge_rebuilds_the_session_from_the_token(client):
+    first = await client.get("/session", headers=HEADERS)
+    assert first.status_code == 200
+    assert len(manager.registry.sessions) == 1
+
+    # A restart loses all in-memory sessions; the token header must bring it back.
+    await manager.registry.close_all()
+    manager.registry.sessions.clear()
+
+    again = await client.get("/session", headers=HEADERS)
+    assert again.status_code == 200
+    assert again.json()["account"]["balance"] == 10020.5
+    assert len(manager.registry.sessions) == 1
+    assert next(iter(manager.registry.sessions.values())).reconnects >= 0

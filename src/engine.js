@@ -313,10 +313,17 @@ class TradingEngine {
         'Stored ExpertOption token could not be decrypted (APP_SECRET_KEY changed?); enter the token again from the UI');
       return null;
     }
+    const storedType = row.account_type || 'demo';
+    if (storedType === 'real' && !config.EXPERTOPTION_ALLOW_REAL_READ) {
+      this.sessionRestore = { restored: false, reason: 'real_read_disabled', account_id: row.id };
+      await this.db.addLog('warn', 'broker',
+        'A stored ExpertOption real-account session was not restored: EXPERTOPTION_ALLOW_REAL_READ is false');
+      return null;
+    }
     return this._wireExpertOptionAccount({
       accountId: row.id,
       login: row.login,
-      accountType: row.account_type || 'demo',
+      accountType: storedType,
       token,
       stored: true,
       restored: true,

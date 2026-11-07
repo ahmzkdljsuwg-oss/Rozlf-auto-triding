@@ -60,6 +60,11 @@ function createApp({ engine }) {
       platforms,
       account_types: accountTypes,
       enabled_account_types: accountTypes,
+      account_types_by_platform: {
+        mt5: accountTypes,
+        expertoption: (config.REAL_TRADING_APPROVED || config.EXPERTOPTION_ALLOW_REAL_READ)
+          ? ['demo', 'real'] : ['demo'],
+      },
       symbols: config.SYMBOLS,
       timeframes: config.TIMEFRAMES,
       market_data_provider: 'yahoo',
@@ -67,6 +72,7 @@ function createApp({ engine }) {
       expertoption_execution: false,
       expertoption_real_read: config.EXPERTOPTION_ALLOW_REAL_READ,
       session_restore_enabled: config.EXPERTOPTION_RESTORE_SESSION,
+      encryption_ready: require('./security').encryptionReady(),
       storage: engine.db
         ? { driver: engine.db.driver, durable: engine.db.driver === 'postgres' }
         : null,
@@ -108,6 +114,9 @@ function createApp({ engine }) {
     if (body.server !== undefined && String(body.server).length > 128) errors.push('server is too long');
     if (errors.length) return res.status(422).json({ detail: 'Validation error', errors });
 
+    if (isExpertOption && !require('./security').encryptionReady()) {
+      return fail(res, 409, 'APP_SECRET_KEY is not configured; the ExpertOption session token cannot be stored encrypted');
+    }
     const eoRealRead = body.platform === 'expertoption' && body.account_type === 'real'
       && config.EXPERTOPTION_ALLOW_REAL_READ;
     if (body.account_type === 'real' && !config.REAL_TRADING_APPROVED && !eoRealRead) {

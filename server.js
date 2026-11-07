@@ -13,6 +13,10 @@ async function main() {
       'SQLite file, which is lost when the host restarts or redeploys. Set DATABASE_URL to a persistent ' +
       'PostgreSQL instance so the session can be restored automatically.');
   }
+  if (!config.SECRET_KEY) {
+    console.warn('WARNING: APP_SECRET_KEY is not set. Secrets (ExpertOption session token, MT5 password) ' +
+      'cannot be stored encrypted, and session restore will not work. Set APP_SECRET_KEY in the environment.');
+  }
   const engine = await new TradingEngine({ db }).init();
   const telegramBot = new TelegramBotController({ notifier: engine.telegram, engine });
   await telegramBot.start();

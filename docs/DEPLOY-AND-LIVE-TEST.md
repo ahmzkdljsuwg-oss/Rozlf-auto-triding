@@ -21,7 +21,8 @@
 اضبطها من Dashboard → Environment:
 
 ```
-APP_SECRET_KEY      = <قيمة عشوائية طويلة>     # مفتاح تشفير AES-GCM للتوكن
+APP_SECRET_KEY      = <قيمة عشوائية طويلة>     # مفتاح تشفير AES-GCM للتوكن (إلزامي)
+APP_SECRET_KEY_PREVIOUS = <المفتاح القديم>      # عند تدوير المفتاح فقط، مفصول بفواصل
 DASHBOARD_TOKEN     = <رمز دخول طويل>          # إلزامي: بدونه كل مسارات /api مغلقة
 ALLOW_INSECURE_DASHBOARD = false               # للتطوير المحلي فقط
 EXPERTOPTION_BRIDGE_URL  = https://<bridge-host>
@@ -101,7 +102,9 @@ ROZLF_URL=https://<backend-host> DASHBOARD_TOKEN=... \
 - الجلسات في ذاكرة الـ bridge: تُفقد عند إيقاف الحاوية، ويعيد الـ backend بناءها
   تلقائيًا عند أول طلب من التوكن المستعاد (لا يحتاج إعادة إدخال ما دام
   `APP_SECRET_KEY` ثابتًا و`EXPERTOPTION_RESTORE_SESSION=true`).
-  إن تغيّر `APP_SECRET_KEY` يفشل فك التشفير ويُطلب التوكن مرة أخرى من الواجهة
+  لتدوير `APP_SECRET_KEY` بدون فقدان الجلسة: ضع المفتاح الجديد في `APP_SECRET_KEY`
+  والقديم في `APP_SECRET_KEY_PREVIOUS`، ثم أعد التشغيل؛ يُستخدم القديم للفك فقط.
+  إن حُذف القديم قبل أن يُعاد حفظ التوكن، يفشل فك التشفير ويُطلب التوكن مرة أخرى
   (السبب يظهر في السجل كـ `stored_token_unreadable`، دون طباعة أي سر).
 - خطة Render المجانية تُوقف الخدمة بعد فترة خمول، وقد تحتاج 30–60 ثانية للاستيقاظ.
 - `EO_BRIDGE_DEMO_ONLY=true` لا يمنع قراءة بيانات حساب حقيقي؛ فهو يصف سياسة

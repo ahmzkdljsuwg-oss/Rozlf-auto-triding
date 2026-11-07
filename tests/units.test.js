@@ -1,5 +1,7 @@
 'use strict';
 
+process.env.APP_SECRET_KEY = process.env.APP_SECRET_KEY || 'test-only-secret-key';
+
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const config = require('../src/config');

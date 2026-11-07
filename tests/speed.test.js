@@ -1,5 +1,7 @@
 'use strict';
 
+process.env.APP_SECRET_KEY = process.env.APP_SECRET_KEY || 'test-only-secret-key';
+
 process.env.DASHBOARD_TOKEN = '';
 process.env.ALLOW_INSECURE_DASHBOARD = 'true';
 process.env.REAL_TRADING_APPROVED = 'false';

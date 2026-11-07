@@ -1,5 +1,7 @@
 'use strict';
 
+process.env.APP_SECRET_KEY = process.env.APP_SECRET_KEY || 'test-only-secret-key';
+
 process.env.DASHBOARD_TOKEN = '';
 process.env.ALLOW_INSECURE_DASHBOARD = 'false';
 process.env.REAL_TRADING_APPROVED = 'false';
@@ -100,4 +102,28 @@ test('the dashboard API is locked when no DASHBOARD_TOKEN is configured', async 
   assert.equal(noToken.status, 401);
   const health = await fetch(`${base}/api/health`);
   assert.equal(health.status, 200);
+});
+
+test('a stored real-account session is not restored while real reading is disabled', async (t) => {
+  const { db, engine, dir } = await boot(t);
+  const config = require('../src/config');
+  const previous = { allow: config.EXPERTOPTION_ALLOW_REAL_READ, approved: config.REAL_TRADING_APPROVED };
+  config.EXPERTOPTION_ALLOW_REAL_READ = false;
+  config.REAL_TRADING_APPROVED = false;
+  try {
+    const row = await db.upsertAccount('expertoption', 'real', 'real@example.com', 'ExpertOption',
+      encryptSecret(TOKEN), 0);
+    const again = new TradingEngine({
+      db, market: new FakeMarket(), telegram: new TelegramNotifier('', ''), chartDir: path.join(dir, 'charts'),
+    });
+    await again.init();
+    assert.equal(again.expertOptionSession, null);
+    assert.equal(again.sessionRestore.reason, 'real_read_disabled');
+    assert.equal(again.sessionRestore.account_id, row.id);
+    await again.stop(null);
+  } finally {
+    config.EXPERTOPTION_ALLOW_REAL_READ = previous.allow;
+    config.REAL_TRADING_APPROVED = previous.approved;
+  }
+  assert.ok(engine);
 });
