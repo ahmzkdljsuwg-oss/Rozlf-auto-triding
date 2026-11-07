@@ -1,0 +1,22 @@
+{
+  "name": "rozlf-auto-trader",
+  "version": "2.0.0",
+  "private": true,
+  "description": "ROZLF AUTO TRADER — demo-first automated trading dashboard (Node.js/Express)",
+  "main": "server.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test": "node --test tests/*.test.js"
+  },
+  "dependencies": {
+    "@napi-rs/canvas": "^0.1.80",
+    "better-sqlite3": "^12.4.1",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "pg": "^8.13.1"
+  }
+}

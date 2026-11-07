@@ -1,21 +1,29 @@
 services:
   - type: web
     name: rozlf-auto-trader
-    runtime: python
+    runtime: node
     plan: free
-    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
-    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    buildCommand: npm install
+    startCommand: npm start
     healthCheckPath: /api/health
     autoDeploy: true
     envVars:
+      - key: NODE_VERSION
+        value: "20"
       - key: APP_SECRET_KEY
         generateValue: true
       - key: DASHBOARD_TOKEN
+        sync: false
+      - key: DATABASE_URL
         sync: false
       - key: REAL_TRADING_APPROVED
         value: "false"
       - key: MT5_ENABLED
         value: "false"
+      - key: MT5_BRIDGE_URL
+        sync: false
+      - key: MT5_BRIDGE_TOKEN
+        sync: false
       - key: GEMINI_API_KEY
         sync: false
       - key: GEMINI_MODEL
