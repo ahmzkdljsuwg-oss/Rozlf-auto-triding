@@ -208,6 +208,9 @@ class CloudConnector {
       frames_ok: p ? p.frames > 0 : false,
       input_ok: p ? Boolean(p.input_ok) : false,
       page_ok: p ? Boolean(p.page_ok) : false,
+      page_title: p ? (p.page_title || '') : '',
+      page_password_fields: p ? (p.page_password_fields || 0) : 0,
+      page_text_len: p ? (p.page_text_len || 0) : 0,
       launch_ms: p ? p.launch_ms : null,
       frame_bytes: p ? p.frame_bytes : null,
       peak_rss_mb: p ? p.peak_rss_mb : null,
@@ -267,8 +270,19 @@ class CloudConnector {
         await new Promise((r) => setTimeout(r, 700));
       }
       result.page_url = String(s.url || '');
-      result.page_title = String(s.title || '');
+      result.page_title = String(s.title || '').slice(0, 160);
       result.page_ok = /^https?:/i.test(result.page_url);
+      // Public, non-secret shape of the page: proves whether the login form actually rendered.
+      try {
+        const shape = await s.cdp.send('Runtime.evaluate', {
+          expression: "JSON.stringify({title:document.title||'',pw:document.querySelectorAll('input[type=password]').length,txt:(document.body?document.body.innerText.trim().length:0)})",
+          returnByValue: true,
+        });
+        const parsed = JSON.parse((shape && shape.result && shape.result.value) || '{}');
+        result.page_password_fields = Number(parsed.pw || 0);
+        result.page_text_len = Number(parsed.txt || 0);
+        if (parsed.title && !result.page_title) result.page_title = String(parsed.title).slice(0, 160);
+      } catch { /* diagnostics only */ }
 
       await this.input({ type: 'scroll', x: 200, y: 400, dy: 240 });
       await this.input({ type: 'text', text: 'rozlf-probe' });
