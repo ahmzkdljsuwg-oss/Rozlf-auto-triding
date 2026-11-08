@@ -15,8 +15,6 @@ services:
         sync: false
       - key: APP_SECRET_KEY
         generateValue: true
-      - key: DASHBOARD_TOKEN
-        sync: false
       - key: DATABASE_URL
         fromDatabase:
           name: rozlf-db
@@ -39,8 +37,10 @@ services:
         sync: false
       - key: TELEGRAM_CHAT_ID
         sync: false
-      - key: EXPERTOPTION_SESSION_COOKIE
+      - key: TELEGRAM_BOT_USERNAME
         sync: false
+      - key: PUBLIC_APP_URL
+        value: https://rozlf-auto-triding-1.onrender.com
       - key: EXPERTOPTION_BRIDGE_URL
         sync: false
       - key: EXPERTOPTION_BRIDGE_KEY
@@ -65,28 +65,6 @@ services:
         value: "false"
       - key: SCAN_INTERVAL_SECONDS
         value: "60"
-
-  - type: web
-    name: rozlf-eo-bridge
-    runtime: docker
-    plan: free
-    rootDir: .
-    dockerfilePath: ./eo_bridge/Dockerfile
-    healthCheckPath: /health
-    autoDeploy: true
-    envVars:
-      - key: EO_BRIDGE_API_KEY
-        sync: false
-      - key: EO_BRIDGE_DEMO_ONLY
-        value: "true"
-      - key: EO_BRIDGE_REGION
-        value: EUROPE
-      - key: EO_BRIDGE_LOG_LEVEL
-        value: INFO
-      - key: EO_BRIDGE_ALLOW_REAL_READ
-        value: "true"
-      - key: EO_BRIDGE_QUOTE_MAX_AGE_SECONDS
-        value: "20"
 
 databases:
   - name: rozlf-db

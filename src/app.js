@@ -5,10 +5,11 @@ const fs = require('fs');
 const express = require('express');
 const config = require('./config');
 const localBridge = require('./local-bridge');
-const { dashboardTokenOk } = require('./security');
-const { normalizeExpertOptionToken } = require('./session-token');
+const { createOwnerSession, verifyOwnerSession, encryptionReady } = require('./security');
+const crypto = require('crypto');
 const { RISK_KEYS } = require('./engine');
 const { integrationStatus } = require('./expertoption-session');
+const { normalizeExpertOptionToken } = require('./session-token');
 
 function fail(res, status, detail) {
   return res.status(status).json({ detail });
@@ -29,6 +30,7 @@ function createApp({ engine }) {
   app.use(express.json({ limit: '8mb' }));
 
   app.use((req, res, next) => {
+    if (req.path.startsWith('/api') || req.path === '/telegram-connect.html') res.setHeader('Cache-Control', 'no-store');
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('Referrer-Policy', 'no-referrer');
@@ -41,6 +43,17 @@ function createApp({ engine }) {
     next();
   });
 
+  function ownerCookie(req) {
+    const raw = String(req.headers.cookie || '');
+    const item = raw.split(';').map((v) => v.trim()).find((v) => v.startsWith('rozlf_owner='));
+    if (!item) return '';
+    try { return decodeURIComponent(item.slice('rozlf_owner='.length)); } catch { return ''; }
+  }
+
+  function ownerAuthorized(req) {
+    return Boolean(config.ALLOW_INSECURE_DASHBOARD) || verifyOwnerSession(ownerCookie(req));
+  }
+
   app.get('/api/health', (req, res) => {
     const bridge = localBridge.status();
     res.json({
@@ -50,9 +63,83 @@ function createApp({ engine }) {
     });
   });
 
+  app.get('/api/public/status', async (req, res) => {
+    const bot = engine.telegramBot;
+    if (bot && !bot.botUsername && engine.telegram && engine.telegram.tokenConfigured) {
+      const me = await engine.telegram.getMe().catch(() => null);
+      if (me && me.ok && me.username) bot.botUsername = me.username;
+    }
+    const username = (bot && bot.botUsername) || config.TELEGRAM_BOT_USERNAME || '';
+    res.json({
+      authenticated: ownerAuthorized(req),
+      telegram_configured: Boolean(config.TELEGRAM_BOT_TOKEN && config.TELEGRAM_CHAT_ID),
+      telegram_bot_username: username,
+      app: config.APP_NAME,
+    });
+  });
+
+  // One-time code created only by the owner's Telegram bot chat. The session
+  // token is submitted over HTTPS here, never as a Telegram message.
+  app.post('/api/telegram/link/complete', async (req, res) => {
+    const body = req.body || {};
+    const code = String(body.code || '').trim();
+    const sessionToken = normalizeExpertOptionToken(body.session_token);
+    if (!/^[a-f0-9]{64}$/i.test(code) || !isText(sessionToken, 1, 4096)) {
+      return fail(res, 422, 'رابط الربط غير صالح أو انتهت صلاحيته. اطلب رابطاً جديداً من البوت.');
+    }
+    if (!encryptionReady()) return fail(res, 503, 'APP_SECRET_KEY غير مضبوط؛ لا يمكن حفظ الجلسة بشكل مشفر.');
+    const codeHash = crypto.createHash('sha256').update(code).digest('hex');
+    const key = `telegram.link.${codeHash}`;
+    const record = await engine.db.getSetting(key, null);
+    if (!record || !record.chat_id || Number(record.expires_at || 0) < Date.now()) {
+      await engine.db.setSetting(key, null).catch(() => {});
+      return fail(res, 410, 'انتهت صلاحية رابط الربط. ارجع إلى Telegram واكتب /connect للحصول على رابط جديد.');
+    }
+    const latestCodeHash = await engine.db.getSetting(`telegram.link.latest.${String(record.chat_id)}`, null);
+    if (latestCodeHash !== codeHash) {
+      await engine.db.setSetting(key, null).catch(() => {});
+      return fail(res, 410, 'هذا رابط قديم. استخدم أحدث رابط أرسله لك بوت ROZLF.');
+    }
+    // Consume before contacting the broker to make the code strictly one-use.
+    await engine.db.setSetting(key, null);
+    await engine.db.setSetting(`telegram.link.latest.${String(record.chat_id)}`, null);
+    try {
+      const status = await engine.attachAccount({
+        platform: 'expertoption', accountType: 'demo',
+        login: `telegram-${String(record.chat_id).slice(-8)}`,
+        sessionToken,
+      });
+      const verification = engine.expertOptionSession
+        ? await engine.expertOptionSession.verify()
+        : { verified: false, last_error: 'ExpertOption session was not initialized' };
+      if (!verification.verified) {
+        const message = String(verification.last_error || verification.reason_ar || 'تعذر التحقق من الجلسة').slice(0, 240);
+        if (engine.telegram) await engine.telegram.api('sendMessage', {
+          chat_id: record.chat_id,
+          text: `⚠️ لم يكتمل ربط ExpertOption. السبب: ${message}\nاطلب رابطاً جديداً بكتابة /connect.`,
+        }).catch(() => {});
+        return res.status(409).json({ ok: false, verified: false, detail: message });
+      }
+      const cookieValue = createOwnerSession();
+      if (!cookieValue) return fail(res, 503, 'تعذر إنشاء جلسة دخول آمنة؛ تحقق من APP_SECRET_KEY.');
+      const secure = req.secure || String(req.headers['x-forwarded-proto'] || '').includes('https');
+      res.setHeader('Set-Cookie', `rozlf_owner=${encodeURIComponent(cookieValue)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=2592000${secure ? '; Secure' : ''}`);
+      if (engine.telegram) await engine.telegram.api('sendMessage', {
+        chat_id: record.chat_id,
+        text: '✅ <b>تم ربط حساب ExpertOption والتحقق من الجلسة بنجاح.</b> يمكنك الآن فتح موقع ROZLF واستخدام التحليل. وضع القراءة فقط مفعّل.',
+        parse_mode: 'HTML',
+      }).catch(() => {});
+      return res.json({ ok: true, verified: true, account: status.account || null, redirect: '/' });
+    } catch (err) {
+      const message = String(err.message || 'Connection failed').slice(0, 240);
+      await engine.db.addLog('warn', 'telegram-link', `ExpertOption link failed: ${message}`).catch(() => {});
+      return fail(res, 502, message);
+    }
+  });
+
   app.use('/api', (req, res, next) => {
-    if (dashboardTokenOk(req.get('X-Dashboard-Token'))) return next();
-    return fail(res, 401, 'Dashboard access token required');
+    if (ownerAuthorized(req)) return next();
+    return fail(res, 401, 'افتح بوت ROZLF في Telegram واكتب /connect لربط الجلسة والدخول للموقع.');
   });
 
   app.get('/api/config', (req, res) => {
@@ -116,10 +203,11 @@ function createApp({ engine }) {
     if (!['demo', 'real'].includes(body.account_type)) errors.push('account_type must be demo or real');
     const isExpertOption = body.platform === 'expertoption';
     if (!isText(body.login, 2, 128)) errors.push('login must be 2-128 characters');
-    const sessionToken = isExpertOption ? normalizeExpertOptionToken(String(body.session_token || '')) : '';
+    const normalizedSessionToken = isExpertOption
+      ? normalizeExpertOptionToken(body.session_token)
+      : '';
     if (isExpertOption) {
-      if (!isText(body.session_token, 1, 4096)) errors.push('session_token is required');
-      else if (!sessionToken) errors.push('session_token is invalid: paste the ExpertOption token value, not a cookie header without it');
+      if (!isText(normalizedSessionToken, 1, 4096)) errors.push('A valid raw Session Token or cookie string containing token= is required');
     } else if (!isText(body.password, 1, 256)) {
       errors.push('password is required');
     }
@@ -140,7 +228,7 @@ function createApp({ engine }) {
         accountType: body.account_type,
         login: String(body.login),
         password: body.password ? String(body.password) : '',
-        sessionToken,
+        sessionToken: normalizedSessionToken,
         server: body.server ? String(body.server) : '',
       });
       return res.json(status);
@@ -547,6 +635,7 @@ function createApp({ engine }) {
   app.use('/static', express.static(staticDir, { maxAge: '1h', index: false }));
   app.get('/manifest.webmanifest', (req, res) => res.sendFile(path.join(staticDir, 'manifest.webmanifest')));
   app.get('/favicon.svg', (req, res) => res.sendFile(path.join(staticDir, 'favicon.svg')));
+  app.get('/telegram-connect.html', (req, res) => res.sendFile(path.join(staticDir, 'telegram-connect.html')));
   app.get('/', (req, res) => res.sendFile(path.join(staticDir, 'index.html')));
 
   app.use((err, req, res, next) => {

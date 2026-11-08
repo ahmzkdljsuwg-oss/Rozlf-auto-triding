@@ -3,7 +3,6 @@
 
   const I18N = window.RozlfI18n;
   const t = (k, v) => I18N.t(k, v);
-  const TOKEN_KEY = 'rozlf_dashboard_token';
   const EXPIRIES = [
     { id: '30s', ar: '٣٠ ثانية', en: '30s' },
     { id: '1m', ar: 'دقيقة', en: '1m' },
@@ -80,71 +79,17 @@
     toastTimer = setTimeout(() => { el.className = 'toast hidden'; }, 4200);
   }
 
-  /* ---------------- access token ---------------- */
-
-  let token = localStorage.getItem(TOKEN_KEY) || '';
-  let tokenWaiter = null;
-
-  function openAccess(message) {
-    const modal = $('access-modal');
-    if (!modal) return;
-    modal.classList.remove('hidden');
-    setText($('access-msg'), message || '');
-    const input = $('access-input');
-    input.value = '';
-    setTimeout(() => input.focus(), 60);
-  }
-
-  let tokenWaiterReject = null;
-
-  function closeAccess() {
-    const modal = $('access-modal');
-    if (modal) modal.classList.add('hidden');
-    if (tokenWaiterReject) {
-      const reject = tokenWaiterReject;
-      tokenWaiter = null;
-      tokenWaiterReject = null;
-      reject(new Error('access-cancelled'));
-    }
-  }
-
-  function askToken(message) {
-    return new Promise((resolve, reject) => {
-      tokenWaiter = resolve;
-      tokenWaiterReject = reject;
-      openAccess(message);
-    });
-  }
-
-  function saveAccess(value) {
-    token = value.trim();
-    localStorage.setItem(TOKEN_KEY, token);
-  }
-
+  /* ---------------- owner session ---------------- */
   async function api(path, options) {
-    const opts = Object.assign({ method: 'GET', headers: {} }, options || {});
+    const opts = Object.assign({ method: 'GET', headers: {}, credentials: 'same-origin' }, options || {});
     opts.headers = Object.assign({}, opts.headers);
     if (opts.body && typeof opts.body !== 'string') {
       opts.headers['Content-Type'] = 'application/json';
       opts.body = JSON.stringify(opts.body);
     }
-    if (token) opts.headers['X-Dashboard-Token'] = token;
-
     let res;
-    try {
-      res = await fetch(path, opts);
-    } catch (err) {
-      throw new Error(t('toast.offline'));
-    }
-
-    if (res.status === 401) {
-      saveAccess('');
-      const fresh = await askToken(t('toast.accessWrong'));
-      opts.headers['X-Dashboard-Token'] = fresh;
-      res = await fetch(path, opts);
-      if (res.status === 401) throw new Error(t('toast.accessWrong'));
-    }
-
+    try { res = await fetch(path, opts); }
+    catch (err) { throw new Error(t('toast.offline')); }
     let data = null;
     const text = await res.text();
     try { data = text ? JSON.parse(text) : null; } catch { data = null; }
@@ -153,9 +98,26 @@
       const err = new Error(String(message));
       err.status = res.status;
       err.data = data;
+      if (res.status === 401) showTelegramGate();
       throw err;
     }
     return data;
+  }
+
+  function showTelegramGate(status) {
+    const gate = $('telegram-gate');
+    if (gate) gate.classList.remove('hidden');
+    const username = status && status.telegram_bot_username ? String(status.telegram_bot_username).replace(/^@/, '') : '';
+    const href = username ? `https://t.me/${encodeURIComponent(username)}?start=connect` : 'https://t.me/';
+    ['telegram-connect-link', 'telegram-gate-link'].forEach((id) => {
+      const link = $(id);
+      if (link) link.href = href;
+    });
+    const text = $('telegram-gate-text');
+    if (text) text.textContent = username
+      ? `افتح @${username} واضغط Start أو اكتب /connect للحصول على رابط ربط آمن.`
+      : 'افتح بوت ROZLF في Telegram واكتب /connect للحصول على رابط ربط آمن.';
+    setPill('', 'بانتظار ربط Telegram');
   }
 
   /* ---------------- session ---------------- */
@@ -231,62 +193,20 @@
         renderSession(null);
         return null;
       }
-      if (err.message === 'access-cancelled') return state.session;
+      if (err.status === 401) return null;
       setPill('', t('pill.offline'));
       return state.session;
     }
   }
 
-  /* ---------------- connect ---------------- */
-
-  async function connect(event) {
-    if (event) event.preventDefault();
-    const login = ($('account-login').value || '').trim();
-    const secret = ($('session-token').value || '').trim();
-    const msg = $('connect-msg');
-    const btn = $('connect-btn');
-
-    if (!secret) {
-      msg.textContent = t('toast.tokenRequired');
-      msg.classList.remove('ok');
-      return;
-    }
-    msg.textContent = ar() ? 'جارٍ اختبار الاتصال…' : 'Testing the connection…';
-    msg.classList.remove('ok');
-    btn.disabled = true;
-
-    try {
-      await api('/api/connect', {
-        method: 'POST',
-        body: {
-          platform: 'expertoption',
-          account_type: 'demo',
-          login: login || 'demo',
-          session_token: secret,
-        },
-      });
-      $('session-token').value = '';
-      msg.textContent = t('toast.connected');
-      msg.classList.add('ok');
-      toast(t('toast.connected'));
-      await refreshSession();
-      await loadAssets();
-      await loadLogs();
-    } catch (err) {
-      if (err.message === 'access-cancelled') return;
-      msg.textContent = String(err.message || 'Connection failed');
-      msg.classList.remove('ok');
-    } finally {
-      btn.disabled = false;
-    }
-  }
+  /* ExpertOption session is linked through the one-time secure Telegram page. */
 
   async function disconnect() {
     try {
       await api('/api/disconnect', { method: 'POST', body: {} });
       toast(t('toast.disconnected'));
     } catch (err) {
-      if (err.message !== 'access-cancelled') toast(String(err.message), 'err');
+      toast(String(err.message), 'err');
     }
     await refreshSession();
     state.assets = [];
@@ -322,7 +242,6 @@
       state.assetsError = state.assets.length ? null : (result.detail_ar || result.detail || t('assets.empty'));
       if (state.assets.length) toast(t('toast.loadingAssets', { n: state.assets.length }));
     } catch (err) {
-      if (err.message === 'access-cancelled') return;
       state.assets = [];
       state.assetsError = err.message;
       if (err.data && (err.data.detail_ar || err.data.detail)) state.assetsError = err.data.detail_ar || err.data.detail;
@@ -630,7 +549,6 @@
       setText($('chart-meta'), `${result.timeframe || '—'} · ${(result.chart && result.chart.candles ? result.chart.candles.length : 0)} ${ar() ? 'شمعة' : 'candles'}`);
       renderStats();
     } catch (err) {
-      if (err.message === 'access-cancelled') return;
       setBadge('red', t('analysis.failed'));
       const detail = err.data || {};
       const message = detail.detail_ar || detail.reason_ar || err.message;
@@ -810,7 +728,6 @@
         </div>`;
       }).join('');
     } catch (err) {
-      if (err.message === 'access-cancelled') return;
       wrap.innerHTML = `<p class="verdict-reason">${escapeHtml(String(err.message))}</p>`;
     }
   }
@@ -893,8 +810,6 @@
       });
     }
 
-    const connectForm = $('connect-form');
-    if (connectForm) connectForm.addEventListener('submit', connect);
     const disconnectBtn = $('disconnect-btn');
     if (disconnectBtn) disconnectBtn.addEventListener('click', disconnect);
     const logsBtn = $('refresh-logs');
@@ -921,37 +836,6 @@
       loadLogs();
     });
 
-    const accessBtn = $('access-btn');
-    if (accessBtn) accessBtn.addEventListener('click', () => openAccess(''));
-    const accessForm = $('access-form');
-    if (accessForm) {
-      accessForm.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const value = ($('access-input').value || '').trim();
-        if (!value) {
-          setText($('access-msg'), t('toast.accessMissing'));
-          return;
-        }
-        saveAccess(value);
-        try {
-          await api('/api/config');
-          toast(t('toast.accessSaved'));
-          $('access-modal').classList.add('hidden');
-          if (tokenWaiter) {
-            const resolve = tokenWaiter;
-            tokenWaiter = null;
-            tokenWaiterReject = null;
-            resolve(token);
-          }
-          bootData();
-        } catch (err) {
-          saveAccess('');
-          setText($('access-msg'), t('toast.accessWrong'));
-        }
-      });
-    }
-    const accessCancel = $('access-cancel');
-    if (accessCancel) accessCancel.addEventListener('click', closeAccess);
 
     window.addEventListener('resize', () => {
       if (state.last && state.last.chart && state.last.chart.candles) drawChart(state.last.chart.candles);
@@ -1000,23 +884,28 @@
     renderStats();
     renderQuickAssets();
     setText($('stat-assets'), '—');
-    if (!token) {
-      refreshPublic();
-    } else {
-      bootData();
-    }
+    refreshPublic();
   }
 
   async function refreshPublic() {
     try {
-      await api('/api/config');
-    } catch (err) {
-      if (err.message === 'access-cancelled') {
-        setPill('', t('pill.disconnected'));
+      const status = await fetch('/api/public/status', { credentials: 'same-origin' }).then((r) => r.json());
+      if (!status.authenticated) {
+        showTelegramGate(status);
         return;
       }
+      const gate = $('telegram-gate');
+      if (gate) gate.classList.add('hidden');
+      const username = status.telegram_bot_username ? String(status.telegram_bot_username).replace(/^@/, '') : '';
+      if (username) {
+        const href = `https://t.me/${encodeURIComponent(username)}?start=connect`;
+        const link = $('telegram-connect-link');
+        if (link) link.href = href;
+      }
+      bootData();
+    } catch (err) {
+      showTelegramGate();
     }
-    bootData();
   }
 
   if (document.readyState === 'loading') {

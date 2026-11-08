@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 
 const config = require('../src/config');
-const { encryptSecret, decryptSecret, encryptionReady } = require('../src/security');
+const { encryptSecret, decryptSecret, encryptionReady, createOwnerSession, verifyOwnerSession } = require('../src/security');
 
 test('a secret encrypted with the current key decrypts with the same key', () => {
   config.SECRET_KEY = 'first-key-aaaa';
@@ -46,4 +46,16 @@ test('a tampered ciphertext is rejected', () => {
   const parts = token.split('.');
   const broken = [parts[0], parts[1], parts[2], Buffer.from('other').toString('base64')].join('.');
   assert.equal(decryptSecret(broken), '');
+});
+
+
+test('Telegram-paired owner session cookie is signed and expires', () => {
+  config.SECRET_KEY = 'owner-cookie-test-secret';
+  config.SECRET_KEY_PREVIOUS = '';
+  const cookie = createOwnerSession(Math.floor(Date.now() / 1000) + 120);
+  assert.equal(verifyOwnerSession(cookie), true);
+  assert.equal(verifyOwnerSession(`${cookie}x`), false);
+  const expired = createOwnerSession(Math.floor(Date.now() / 1000) - 10);
+  assert.equal(verifyOwnerSession(expired), false);
+  assert.equal(verifyOwnerSession(''), false);
 });

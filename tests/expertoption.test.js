@@ -144,6 +144,13 @@ test('asset ids are only trusted after matching the live instrument list', () =>
   assert.equal(byKey['usdjpy-otc'].id, null);
 });
 
+test('a reused legacy numeric ID cannot mislabel an unrelated live instrument', () => {
+  const unrelated = [{ id: '240', symbol: 'SOME_OTHER_ASSET', name: 'Unrelated Index', active: true }];
+  assert.equal(resolveInstrument(unrelated, 'smarty'), null);
+  const listed = describeAssets(unrelated);
+  assert.equal(listed.find((a) => a.key === 'smarty').available, false);
+});
+
 test('candles are normalized, sorted and de-duplicated', async () => {
   const candles = makeCandles(120);
   candles[10] = { ...candles[10], time: candles[9].time };

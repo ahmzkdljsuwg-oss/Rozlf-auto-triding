@@ -112,8 +112,9 @@ function resolveInstrument(instruments, assetKey) {
     const byName = list.find((i) => pattern.test(instrumentHaystack(i)));
     if (byName && !pattern.test(String(byName.id))) return { instrument: byName, resolved_by: 'name' };
   }
-  const byId = list.find((i) => String(i.id) === String(request.legacy_id));
-  if (byId) return { instrument: byId, resolved_by: 'legacy_id' };
+  // Community legacy IDs are hints only. Never label an instrument as
+  // Smarty/OTC solely because its numeric ID happens to match an old list:
+  // IDs can change or be reused. A live name/symbol match is required.
   return null;
 }
 
@@ -122,8 +123,8 @@ const CATEGORY_ORDER = { smarty: 0, otc: 1, forex: 2, index: 3, crypto: 4, stock
 function describeAccountAssets(instruments) {
   const list = (Array.isArray(instruments) ? instruments : []).filter((i) => i && i.id !== undefined && i.id !== null && i.name);
   const decorated = list.map((instrument) => {
-    const request = REQUESTED_ASSETS.find((r) => String(r.legacy_id) === String(instrument.id)
-      || r.match.some((pattern) => pattern.test(instrumentHaystack(instrument))));
+    const request = REQUESTED_ASSETS.find((r) =>
+      r.match.some((pattern) => pattern.test(instrumentHaystack(instrument))));
     const active = instrument.active !== false;
     return {
       key: request ? request.key : `asset-${instrument.id}`,
@@ -278,8 +279,8 @@ async function analyzeAsset({
   const instrument = resolved.instrument;
   const effectiveKey = ASSET_KEYS.has(String(assetKey)) && !byInstrument
     ? String(assetKey)
-    : (REQUESTED_ASSETS.find((r) => String(r.legacy_id) === String(instrument.id)
-      || r.match.some((pattern) => pattern.test(instrumentHaystack(instrument))))?.key || `asset-${instrument.id}`);
+    : (REQUESTED_ASSETS.find((r) =>
+      r.match.some((pattern) => pattern.test(instrumentHaystack(instrument))))?.key || `asset-${instrument.id}`);
   const assetInactive = instrument.active === false;
   const warnings = [];
   if (assetInactive) {

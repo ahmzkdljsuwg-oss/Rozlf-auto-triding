@@ -37,9 +37,10 @@ const config = {
 
   SECRET_KEY: env('APP_SECRET_KEY', ''),
   SECRET_KEY_PREVIOUS: env('APP_SECRET_KEY_PREVIOUS', ''),
+  // Retained only for legacy helper/tests; production API access now uses a
+  // signed, HttpOnly owner cookie issued after Telegram one-time pairing.
   DASHBOARD_TOKEN: env('DASHBOARD_TOKEN', ''),
-  // Fail closed: when no dashboard token is configured, /api stays locked unless
-  // this is explicitly switched on for local development only.
+  // Development-only bypass; keep false in production.
   ALLOW_INSECURE_DASHBOARD: bool('ALLOW_INSECURE_DASHBOARD', false),
   DATABASE_URL: env('DATABASE_URL', ''),
   DATABASE_PATH: path.resolve(env('DATABASE_PATH', path.join(DATA_DIR, 'rozzlf.db'))),
@@ -50,11 +51,10 @@ const config = {
   MISTRAL_MODEL: env('MISTRAL_MODEL', 'mistral-small-latest'),
   TELEGRAM_BOT_TOKEN: env('TELEGRAM_BOT_TOKEN', ''),
   TELEGRAM_CHAT_ID: env('TELEGRAM_CHAT_ID', ''),
+  TELEGRAM_BOT_USERNAME: env('TELEGRAM_BOT_USERNAME', ''),
+  PUBLIC_APP_URL: env('PUBLIC_APP_URL', 'https://rozlf-auto-triding-1.onrender.com').replace(/\/$/, ''),
   TELEGRAM_API_BASE: env('TELEGRAM_API_BASE', 'https://api.telegram.org'),
   TELEGRAM_POLL_SECONDS: Number(env('TELEGRAM_POLL_SECONDS', '20')),
-  // Optional private session cookie. Never expose it to the browser or logs.
-  EXPERTOPTION_SESSION_COOKIE: env('EXPERTOPTION_SESSION_COOKIE', ''),
-
   // Authorized gateway for ExpertOption account/market data. ExpertOption itself
   // publishes no public API, so data access only works when an authorized
   // gateway implementing the documented contract is configured here. Leaving

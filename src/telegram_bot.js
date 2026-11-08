@@ -1,5 +1,6 @@
 'use strict';
 
+const crypto = require('crypto');
 const config = require('./config');
 const { getSpeedPreset } = require('./speed');
 const { escapeHtml } = require('./telegram');
@@ -596,6 +597,27 @@ class TelegramBotController {
       return;
     }
 
+    if (lower === '/connect' || lower === '/start connect' || lower.startsWith('/start connect@')) {
+      if (!config.PUBLIC_APP_URL || !/^https:\/\//i.test(config.PUBLIC_APP_URL)) {
+        return this.notifier.sendMessage('⚠️ رابط الموقع غير مضبوط. أضف PUBLIC_APP_URL في إعدادات Render.');
+      }
+      const rawCode = crypto.randomBytes(32).toString('hex');
+      const codeHash = crypto.createHash('sha256').update(rawCode).digest('hex');
+      const key = `telegram.link.${codeHash}`;
+      await this.engine.db.setSetting(`telegram.link.latest.${String(chatId)}`, codeHash);
+      await this.engine.db.setSetting(key, {
+        chat_id: String(chatId),
+        created_at: Date.now(),
+        expires_at: Date.now() + 5 * 60 * 1000,
+      });
+      const link = `${config.PUBLIC_APP_URL}/telegram-connect.html#code=${rawCode}`;
+      return this.notifier.sendMessage([
+        '🔐 <b>ربط جلسة ExpertOption بأمان</b>',
+        'افتح صفحة الربط الآمنة من الزر أدناه، ثم أدخل Session Token داخل الصفحة فقط.',
+        'لا ترسل التوكن كرسالة إلى البوت. الرابط صالح لمدة 5 دقائق ولمرة واحدة.',
+      ].join('\n'), { inline_keyboard: [[{ text: '🔗 فتح صفحة الربط الآمنة', url: link }]] });
+    }
+
     if (lower === '/id' || lower === '/chatid') {
       return this.notifier.api('sendMessage', {
         chat_id: chatId,
@@ -630,13 +652,14 @@ class TelegramBotController {
       await this.engine.stop('telegram');
       return this.notifier.sendMessage('⏹ تم إيقاف البوت.', this.notifier.mainKeyboard());
     }
-    if (lower === '/start' || lower === '/help') {
+    if (lower === '/start' || lower === '/help' || lower.startsWith('/start@')) {
       return this.notifier.sendMessage([
         '🤖 <b>ROZLF AUTO TRADER</b>',
-        'ExpertOption للتحليل والإشعارات، وقسم التداول مخصص لـ MT5. اختر القسم من الأزرار أدناه.',
-        'التداول الحقيقي معطّل. لا تُنشأ صفقة قبل تأكيد الوسيط لها.',
+        'تحليل ExpertOption وإشارات السوق من بيانات حسابك بعد ربط الجلسة.',
+        'لربط الحساب بأمان اكتب /connect. لا ترسل Session Token في رسالة.',
+        'ROZLF في وضع القراءة والتحليل فقط؛ لا ينفّذ صفقات.',
         '',
-        'الأوامر: /menu /status /eo /speed /test /ping /id /stop',
+        'الأوامر: /connect /menu /status /eo /test /ping /id',
       ].join('\n'), this.notifier.mainKeyboard());
     }
   }

@@ -148,7 +148,6 @@ class TelegramNotifier {
     return {
       inline_keyboard: [
         [{ text: '📊 ExpertOption — تحليل تلقائي', callback_data: 'menu:eo' }],
-        [{ text: '▶️ التداول — MT5', callback_data: 'menu:trade' }],
         [{ text: '🔔 الإشعارات', callback_data: 'menu:notify' }, { text: '⚙️ الإعدادات', callback_data: 'menu:settings' }],
         [{ text: '📈 الحالة', callback_data: 'action:status' }],
       ],

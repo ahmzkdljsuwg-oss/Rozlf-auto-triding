@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>ROZLF AUTO TRADER — تحليل ذكي للأسواق</title>
   <meta name="description" content="ROZLF AUTO TRADER — منصة تحليل ذكي لأسواق ExpertOption: شموع حقيقية، مؤشرات، هيكل سوق، وإشارات BUY / SELL / NO TRADE بدون أي تنفيذ صفقات." />
-  <meta name="theme-color" content="#06060f" />
+  <meta name="theme-color" content="#327fcc" />
   <link rel="manifest" href="/manifest.webmanifest" />
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
   <link rel="apple-touch-icon" href="/favicon.svg" />
@@ -14,10 +14,10 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/css/styles.css?v=10" />
+  <link rel="stylesheet" href="/static/css/styles.css?v=11" />
 </head>
 <body>
-  <header class="topbar">
+  <header class="topbar" id="top">
     <div class="shell topbar-inner">
       <a class="brand" href="/" aria-label="ROZLF AUTO TRADER">
         <span class="brand-mark" aria-hidden="true">
@@ -37,21 +37,21 @@
 
       <div class="live-pill" id="conn-pill"><i></i><span id="conn-pill-text" data-i18n="pill.checking">جارٍ التحقق</span></div>
       <button class="icon-btn" id="lang-toggle" type="button" aria-label="Language">EN</button>
-      <button class="icon-btn" id="access-btn" type="button" aria-label="Access key" title="مفتاح الوصول">
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-          <circle cx="8" cy="12" r="4" /><path d="M12 12h9M17 12v3M20 12v2" />
-        </svg>
-      </button>
     </div>
   </header>
 
   <main class="shell">
+    <section class="telegram-gate hidden" id="telegram-gate">
+      <div class="gate-mark">ROZLF</div>
+      <div><b>افتح كل أدوات ROZLF بربط Telegram</b><p id="telegram-gate-text">افتح بوت ROZLF واكتب /connect للحصول على رابط آمن.</p></div>
+      <a class="btn btn-primary" id="telegram-gate-link" href="https://t.me/" target="_blank" rel="noopener">فتح Telegram</a>
+    </section>
     <!-- ============ HERO ============ -->
     <section class="hero reveal">
       <span class="eyebrow" data-i18n="hero.eyebrow">تحليل ذكي للأسواق</span>
       <h1><span data-i18n="hero.title">حلّل أي أصل</span> <em data-i18n="hero.titleAccent">في ثوانٍ</em></h1>
       <p class="hero-sub" data-i18n="hero.sub">
-        شموع حقيقية من جلسة حسابك في ExpertOption، مؤشرات فنية، هيكل سوق، وقراءة ذكية بالسعر الفعلي — دون أي تنفيذ صفقات.
+        تحليل للأصول المتاحة في حساب ExpertOption، شموع فعلية ومؤشرات وهيكل سوق — مع توضيح مصدر البيانات وعمرها، ودون تنفيذ صفقات.
       </p>
 
       <form class="search-card" id="search-form" autocomplete="off">
@@ -82,52 +82,22 @@
         </div>
       </div>
 
-      <article class="card connect-card">
+      <article class="card connect-card connect-card-new">
         <div class="connect-grid">
-          <div>
-            <div class="card-head">
-              <h3 data-i18n="connect.form">بيانات الجلسة</h3>
-              <small data-i18n="connect.demoOnly">Demo فقط</small>
-            </div>
-
-            <form id="connect-form" autocomplete="off">
-              <label class="field">
-                <span data-i18n="connect.login">بريد أو اسم الحساب</span>
-                <input id="account-login" class="ltr" type="text" inputmode="email" placeholder="you@example.com" autocomplete="username" spellcheck="false" />
-              </label>
-
-              <label class="field">
-                <span data-i18n="connect.token">Session Token</span>
-                <input id="session-token" class="ltr" type="password" placeholder="••••••••••••••••" autocomplete="off" spellcheck="false" />
-                <em class="hint" data-i18n="connect.tokenHint">
-                  يُحفظ التوكن مشفّراً على الخادم فقط، ولا يظهر في السجلات أو الواجهة. لا نطلب كلمة مرور حسابك إطلاقاً.
-                </em>
-              </label>
-
-              <div class="connect-actions">
-                <button class="btn btn-primary" type="submit" id="connect-btn" data-i18n="connect.submit">اختبار الاتصال وتسجيل الدخول</button>
-                <button class="btn btn-ghost" type="button" id="disconnect-btn" data-i18n="connect.disconnect">قطع الجلسة</button>
-              </div>
-
-              <p class="form-error" id="connect-msg" role="status" aria-live="polite"></p>
-            </form>
-
-            <details class="token-help" id="token-help">
-              <summary data-i18n="connect.helpSummary">من أين أحصل على Session Token؟</summary>
-              <p data-i18n="connect.helpBody">
-                سجّل الدخول إلى حسابك التجريبي في ExpertOption من متصفحك، ثم افتح أدوات المطوّر ← Application ← Local Storage،
-                وانسخ قيمة مفتاح الجلسة (session / token). تُستخدم هذه القيمة للقراءة والتحليل فقط.
-              </p>
-            </details>
+          <div class="telegram-connect-panel">
+            <div class="telegram-icon">✈</div>
+            <h3>اربط حسابك من Telegram</h3>
+            <p>اضغط زر الربط داخل بوت ROZLF. سنرسل لك صفحة آمنة لإدخال Session Token؛ لا ترسل التوكن كرسالة للبوت.</p>
+            <a class="btn btn-primary telegram-cta" id="telegram-connect-link" href="https://t.me/" target="_blank" rel="noopener">فتح بوت ROZLF</a>
+            <small class="hint">رابط الربط صالح لخمس دقائق ويُستخدم مرة واحدة. الجلسة تحفظ مشفّرة على الخادم.</small>
           </div>
-
           <div class="connect-status">
-            <div class="card-head"><h3 data-i18n="connect.status">حالة الاتصال</h3><small id="status-time"></small></div>
-            <div class="status-row"><span class="dot" id="s-account-dot"></span><span class="lbl" data-i18n="connect.account">الحساب</span><span class="val" id="s-account">—</span></div>
-            <div class="status-row"><span class="dot" id="s-session-dot"></span><span class="lbl" data-i18n="connect.session">الجلسة</span><span class="val" id="s-session">—</span></div>
-            <div class="status-row"><span class="dot" id="s-bridge-dot"></span><span class="lbl" data-i18n="connect.bridge">خدمة القراءة</span><span class="val" id="s-bridge">—</span></div>
-            <div class="status-row"><span class="dot" id="s-data-dot"></span><span class="lbl" data-i18n="connect.data">بيانات السوق</span><span class="val" id="s-data">—</span></div>
-            <div class="status-row"><span class="dot ok"></span><span class="lbl" data-i18n="connect.mode">وضع التشغيل</span><span class="val" data-i18n="connect.modeValue">تحليل فقط — التنفيذ معطّل</span></div>
+            <div class="card-head"><h3>حالة الاتصال</h3><small id="status-time"></small></div>
+            <div class="status-row"><span class="dot" id="s-account-dot"></span><span class="lbl">الحساب</span><span class="val" id="s-account">—</span></div>
+            <div class="status-row"><span class="dot" id="s-session-dot"></span><span class="lbl">الجلسة</span><span class="val" id="s-session">—</span></div>
+            <div class="status-row"><span class="dot" id="s-bridge-dot"></span><span class="lbl">خدمة القراءة</span><span class="val" id="s-bridge">—</span></div>
+            <div class="status-row"><span class="dot" id="s-data-dot"></span><span class="lbl">بيانات السوق</span><span class="val" id="s-data">—</span></div>
+            <div class="status-row"><span class="dot ok"></span><span class="lbl">وضع التشغيل</span><span class="val">تحليل فقط — التنفيذ معطّل</span></div>
             <p class="form-error" id="connect-detail"></p>
           </div>
         </div>
@@ -283,27 +253,9 @@
     </button>
   </nav>
 
-  <div class="modal-backdrop hidden" id="access-modal" role="dialog" aria-modal="true" aria-labelledby="access-title">
-    <div class="modal">
-      <h3 id="access-title" data-i18n="access.title">مفتاح الوصول</h3>
-      <p data-i18n="access.sub">يُطلب مفتاح اللوحة (Dashboard Token) مرة واحدة ويُحفظ في متصفحك فقط.</p>
-      <form id="access-form">
-        <label class="field">
-          <span data-i18n="access.field">Dashboard Token</span>
-          <input id="access-input" class="ltr" type="password" placeholder="••••••••" autocomplete="off" spellcheck="false" />
-        </label>
-        <p class="form-error" id="access-msg"></p>
-        <div class="modal-actions">
-          <button class="btn btn-ghost" type="button" id="access-cancel" data-i18n="access.cancel">إلغاء</button>
-          <button class="btn btn-primary" type="submit" data-i18n="access.save">حفظ</button>
-        </div>
-      </form>
-    </div>
-  </div>
-
   <div class="toast hidden" id="toast" role="status" aria-live="polite"></div>
 
-  <script src="/static/js/i18n.js?v=10"></script>
-  <script src="/static/js/app.js?v=10"></script>
+  <script src="/static/js/i18n.js?v=11"></script>
+  <script src="/static/js/app.js?v=11"></script>
 </body>
 </html>

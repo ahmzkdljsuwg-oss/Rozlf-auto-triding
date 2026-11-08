@@ -6,11 +6,13 @@ It is a data reader: every order function in the vendored client is replaced wit
 stub that raises `TradingDisabledError`, and `ENABLE_REAL_TRADING` / `REAL_TRADING_APPROVED`
 stay `false`. No order is ever placed.
 
-## Why a separate service
+## Runtime arrangement
 
 ROZLF's backend is Node; the client library that talks to the ExpertOption WebSocket is Python.
-The bridge is deployed as a second Render service (`eo_bridge/Dockerfile`) and the backend reaches
-it through `EXPERTOPTION_BRIDGE_URL`.
+The current deployment starts `eo_bridge/standalone.py` as a supervised local child process from
+`src/local-bridge.js`, on `127.0.0.1:8011`. No second Render service is required. If an external
+`EXPERTOPTION_BRIDGE_URL` is configured, the backend checks it and falls back to the local bridge
+when it is unreachable.
 
 ## Upstream library and its licence
 
@@ -64,21 +66,17 @@ checked against `/instrument/{id}/expiries`; a duration the asset does not offer
 
 ## Deploying on Render
 
-1. Push the repo (the second service is declared in `render.yaml`).
-2. Create the bridge service from `render.yaml` (`rozlf-eo-bridge`, Docker, free plan,
-   `eo_bridge/Dockerfile`, health check `/health`).
-3. Set `EO_BRIDGE_API_KEY` on the bridge to a long random string.
-4. On the backend service set:
-   - `EXPERTOPTION_BRIDGE_URL` = the bridge's public URL
-   - `EXPERTOPTION_BRIDGE_KEY` = the same value as `EO_BRIDGE_API_KEY`
-   - `EXPERTOPTION_SESSION_TOKEN` = the account token (server-side only)
-   - `EXPERTOPTION_BRIDGE_URL` must be HTTPS; TLS verification is never disabled.
-5. Open the dashboard → ExpertOption → Demo → login, then «حلّل تلقائي».
+1. Deploy the single ROZLF Node service from the repository root.
+2. Ensure the repository includes `eo_bridge/` and the runtime has Python 3 available.
+3. Leave `EXPERTOPTION_BRIDGE_URL` empty to use the local bridge.
+4. Set `APP_SECRET_KEY`, `DATABASE_URL`, `PUBLIC_APP_URL`, and `EXPERTOPTION_RESTORE_SESSION=true`.
+5. Set `EXPERTOPTION_ALLOW_REAL_READ=true` only if read-only access to a real account is required.
+6. In the authorized Telegram chat, send `/connect`, open the one-time HTTPS link, and enter the fresh ExpertOption Session Token there. The token is never sent as a Telegram message.
 
 ### Operational limits
 
 - Render's free plan sleeps a service after ~15 minutes without traffic and does not guarantee
-  24/7 uptime. Both services (backend and bridge) must be awake for live analysis.
+  24/7 uptime. The single backend service and its local bridge must be awake for live analysis.
 - A free instance is single, small and restarts on every deploy: the bridge's in-memory session
   is lost and the token must be entered again (or provided through the env var).
 - A dropped WebSocket is reconnected with backoff; while it is down, analysis returns

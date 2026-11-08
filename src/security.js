@@ -64,6 +64,29 @@ function maskAccount(login) {
   return value.slice(0, 2) + '*'.repeat(value.length - 4) + value.slice(-2);
 }
 
+function ownerSessionSignature(expiresAt) {
+  const secret = config.SECRET_KEY || '';
+  if (!secret) return '';
+  return crypto.createHmac('sha256', secret).update(`rozlf-owner:${expiresAt}`).digest('base64url');
+}
+
+function createOwnerSession(expiresAt = Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60) {
+  const signature = ownerSessionSignature(expiresAt);
+  return signature ? `${expiresAt}.${signature}` : '';
+}
+
+function verifyOwnerSession(value) {
+  if (!value || typeof value !== 'string' || !encryptionReady()) return false;
+  const [expiryText, signature, extra] = value.split('.');
+  if (extra !== undefined || !/^\d{10}$/.test(expiryText || '') || !signature) return false;
+  const expiry = Number(expiryText);
+  if (!Number.isSafeInteger(expiry) || expiry <= Math.floor(Date.now() / 1000)) return false;
+  const expected = ownerSessionSignature(expiry);
+  const a = Buffer.from(signature);
+  const b = Buffer.from(expected);
+  return Boolean(expected && a.length === b.length && crypto.timingSafeEqual(a, b));
+}
+
 function dashboardTokenOk(supplied) {
   const expected = config.DASHBOARD_TOKEN;
   if (!expected) return Boolean(config.ALLOW_INSECURE_DASHBOARD);
@@ -73,4 +96,4 @@ function dashboardTokenOk(supplied) {
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
-module.exports = { encryptSecret, decryptSecret, encryptionReady, maskAccount, dashboardTokenOk };
+module.exports = { encryptSecret, decryptSecret, encryptionReady, maskAccount, dashboardTokenOk, createOwnerSession, verifyOwnerSession };

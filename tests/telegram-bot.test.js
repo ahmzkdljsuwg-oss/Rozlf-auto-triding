@@ -5,6 +5,7 @@ process.env.DASHBOARD_TOKEN = '';
 process.env.ALLOW_INSECURE_DASHBOARD = 'true';
 process.env.REAL_TRADING_APPROVED = 'false';
 process.env.TELEGRAM_POLL_SECONDS = '1';
+process.env.PUBLIC_APP_URL = 'https://rozlf.example.test';
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -202,6 +203,22 @@ test('notifier polls with the configured base URL and answers /ping', async (t) 
   assert.equal(String(reply.body.chat_id), CHAT_ID);
   assert.equal(bot.health, 'ok');
   assert.ok(bot.lastUpdateAt, 'last update timestamp recorded');
+});
+
+test('the /connect command issues a one-time HTTPS link without asking for a token in chat', async (t) => {
+  const { mock, bot, engine, state } = await bootBot(t);
+  mock.pushMessage('/connect');
+  await waitFor(() => mock.methodCalls('sendMessage').some((c) => /ربط جلسة ExpertOption بأمان/.test(c.body.text || '')), 8000, 'secure link reply');
+  const reply = mock.methodCalls('sendMessage').find((c) => /ربط جلسة ExpertOption بأمان/.test(c.body.text || ''));
+  const url = reply.body.reply_markup.inline_keyboard[0][0].url;
+  assert.match(url, /^https:\/\/rozlf\.example\.test\/telegram-connect\.html#code=[a-f0-9]{64}$/);
+  assert.doesNotMatch(reply.body.text, /Session Token:/i);
+  const stored = [...state.settings.entries()].find(([key]) => key.startsWith('telegram.link.') && !key.startsWith('telegram.link.latest.'));
+  assert.ok(stored, 'hashed one-time code is stored');
+  assert.equal(stored[1].chat_id, CHAT_ID);
+  assert.ok(stored[1].expires_at > Date.now());
+  assert.equal(await engine.db.getSetting(`telegram.link.latest.${CHAT_ID}`, null), stored[0].slice('telegram.link.'.length));
+  assert.ok(url.includes('#code='));
 });
 
 test('the offset is persisted so a restart does not replay old commands', async (t) => {
