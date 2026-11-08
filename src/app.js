@@ -6,6 +6,7 @@ const express = require('express');
 const config = require('./config');
 const localBridge = require('./local-bridge');
 const { dashboardTokenOk } = require('./security');
+const { normalizeExpertOptionToken } = require('./session-token');
 const { RISK_KEYS } = require('./engine');
 const { integrationStatus } = require('./expertoption-session');
 
@@ -115,8 +116,10 @@ function createApp({ engine }) {
     if (!['demo', 'real'].includes(body.account_type)) errors.push('account_type must be demo or real');
     const isExpertOption = body.platform === 'expertoption';
     if (!isText(body.login, 2, 128)) errors.push('login must be 2-128 characters');
+    const sessionToken = isExpertOption ? normalizeExpertOptionToken(String(body.session_token || '')) : '';
     if (isExpertOption) {
       if (!isText(body.session_token, 1, 4096)) errors.push('session_token is required');
+      else if (!sessionToken) errors.push('session_token is invalid: paste the ExpertOption token value, not a cookie header without it');
     } else if (!isText(body.password, 1, 256)) {
       errors.push('password is required');
     }
@@ -137,7 +140,7 @@ function createApp({ engine }) {
         accountType: body.account_type,
         login: String(body.login),
         password: body.password ? String(body.password) : '',
-        sessionToken: body.session_token ? String(body.session_token) : '',
+        sessionToken,
         server: body.server ? String(body.server) : '',
       });
       return res.json(status);
