@@ -356,8 +356,9 @@ class CloudConnector {
   async stop(reason = 'stopped') {
     const s = this.session;
     if (!s) return { stopped: false };
+    const terminal = s.state === 'success' || s.state === 'error' ? s.state : 'idle';
     this.lastOutcome = {
-      state: s.state, error: this.lastError || null, reason, at: new Date().toISOString(),
+      state: terminal, error: this.lastError || null, reason, at: new Date().toISOString(),
       token_seen: Boolean(s.tokenSeen), token_masked: s.tokenMasked || null, url: s.url || null, title: s.title || null,
     };
     this.session = null;
