@@ -265,17 +265,25 @@ class ExpertOptionSession {
       }
       if (response.status === 401 || response.status === 403) {
         const detail = await response.json().catch(() => null);
+        const inner = detail?.detail ?? detail?.error ?? null;
         const detailText = typeof detail?.detail === 'string'
           ? detail.detail
-          : String(detail?.detail?.message || detail?.detail?.code || '');
+          : typeof inner === 'string'
+            ? inner
+            : String(inner?.message || inner?.code || '');
+        const upstreamCode = String(inner?.code || '');
         const keyRejected = /unauthorized(?!.*token)|bridge key|api key/i.test(detailText)
           && !/x-eo-token|session/i.test(detailText);
         this.connected = false;
         this.verified = false;
         this.sessionExpired = !keyRejected;
-        this.lastError = keyRejected
-          ? 'The bridge rejected EO_BRIDGE_API_KEY (401 Unauthorized); ExpertOption was never contacted'
-          : 'ExpertOption session rejected by the gateway (expired or unauthorized)';
+        if (upstreamCode === 'session_invalid') {
+          this.lastError = `ExpertOption rejected this Session Token: ${detailText || 'ERROR_INCORRECT_TOKEN'}`;
+        } else if (keyRejected) {
+          this.lastError = 'The bridge rejected EO_BRIDGE_API_KEY (401 Unauthorized); ExpertOption was never contacted';
+        } else {
+          this.lastError = 'ExpertOption session rejected by the gateway (expired or unauthorized)';
+        }
         throw new ExpertOptionError(this.lastError, keyRejected ? 'bridge_auth_failed' : 'session_expired', {
           status: response.status,
         });

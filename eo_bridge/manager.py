@@ -13,12 +13,17 @@ import asyncio
 import hashlib
 import logging
 import os
+import sys
 import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
-from .vendor.ExpertOptionsToolsV2.constants import DEFAULT_SERVER, SERVERS
-from .vendor.ExpertOptionsToolsV2.expertoption.asyncronous import ExpertOptionAsync
+VENDOR_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "vendor")
+if VENDOR_DIR not in sys.path:
+    sys.path.insert(0, VENDOR_DIR)
+
+from .vendor.ExpertOptionsToolsV2.constants import DEFAULT_SERVER, SERVERS  # noqa: E402
+from .vendor.ExpertOptionsToolsV2.expertoption.asyncronous import ExpertOptionAsync  # noqa: E402
 
 log = logging.getLogger("rozlf.eo_bridge")
 
@@ -34,6 +39,7 @@ CONNECT_RETRIES = int(os.getenv("EO_BRIDGE_CONNECT_RETRIES", "3"))
 CONNECT_BACKOFF = float(os.getenv("EO_BRIDGE_CONNECT_BACKOFF", "1.0"))
 QUOTE_MAX_AGE_SECONDS = float(os.getenv("EO_BRIDGE_QUOTE_MAX_AGE_SECONDS", "20"))
 CANDLE_TIMEOUT = float(os.getenv("EO_BRIDGE_CANDLE_TIMEOUT", "20"))
+CONNECT_TIMEOUT = float(os.getenv("EO_BRIDGE_CONNECT_TIMEOUT", "25"))
 MAX_SESSIONS = int(os.getenv("EO_BRIDGE_MAX_SESSIONS", "4"))
 SERVER_REGION = os.getenv("EO_BRIDGE_REGION", "EUROPE").upper()
 # Chart timeframes ExpertOption publishes. Used when the session does not answer
@@ -109,7 +115,7 @@ class Session:
         for attempt in range(CONNECT_RETRIES):
             try:
                 client = ExpertOptionAsync(self.token, demo=self.demo, url=base_url())
-                await client.connect()
+                await asyncio.wait_for(client.connect(), timeout=CONNECT_TIMEOUT)
                 self.client = client
                 self.quotes.clear()
                 self.connected_at = time.time()
@@ -118,6 +124,25 @@ class Session:
                 if attempt or self.reconnects:
                     log.info("ExpertOption session reconnected (attempt %s)", attempt + 1)
                 return client
+            except ValueError as exc:
+                # The server answered: this token is not accepted. Retrying
+                # cannot help, so report it precisely instead of hanging.
+                message = str(exc)[:200]
+                self.last_error = f"session_invalid: {message}"
+                log.warning("ExpertOption rejected the session token: %s", message)
+                raise BridgeError(
+                    f"ExpertOption rejected the session token ({message})",
+                    code="session_invalid",
+                    status=401,
+                ) from exc
+            except asyncio.TimeoutError as exc:
+                self.last_error = "connect_timeout"
+                log.warning("ExpertOption connect timed out after %ss", CONNECT_TIMEOUT)
+                raise BridgeError(
+                    "ExpertOption did not answer before the connection timeout",
+                    code="connect_timeout",
+                    status=504,
+                ) from exc
             except Exception as exc:  # noqa: BLE001 - surfaced to the caller
                 last = exc
                 self.reconnects += 1

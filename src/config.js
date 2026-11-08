@@ -1,5 +1,6 @@
 'use strict';
 
+const crypto = require('crypto');
 const path = require('path');
 const fs = require('fs');
 require('dotenv').config();
@@ -58,8 +59,15 @@ const config = {
   // publishes no public API, so data access only works when an authorized
   // gateway implementing the documented contract is configured here. Leaving
   // these empty keeps the integration in its honest "not configured" state.
-  EXPERTOPTION_BRIDGE_URL: env('EXPERTOPTION_BRIDGE_URL', env('EXPERTOPTION_API_BASE_URL', '')),
-  EXPERTOPTION_BRIDGE_KEY: env('EXPERTOPTION_BRIDGE_KEY', env('EXPERTOPTION_API_KEY', '')),
+  // When no external bridge is configured, the in-service stdlib bridge in
+  // eo_bridge/standalone.py is used on loopback with a per-boot random key.
+  EXPERTOPTION_BRIDGE_URL: env('EXPERTOPTION_BRIDGE_URL', env('EXPERTOPTION_API_BASE_URL', ''))
+    || `http://127.0.0.1:${Number(env('EO_BRIDGE_PORT', 8011))}`,
+  EXPERTOPTION_BRIDGE_KEY: env('EXPERTOPTION_BRIDGE_KEY', env('EXPERTOPTION_API_KEY', ''))
+    || crypto.randomBytes(24).toString('hex'),
+  EO_USE_LOCAL_BRIDGE: !env('EXPERTOPTION_BRIDGE_URL', env('EXPERTOPTION_API_BASE_URL', '')),
+  EO_LOCAL_BRIDGE_PORT: Number(env('EO_BRIDGE_PORT', 8011)),
+  EO_PYTHON: env('EO_PYTHON', 'python3'),
   EXPERTOPTION_SESSION_TOKEN: env('EXPERTOPTION_SESSION_TOKEN', ''),
   EXPERTOPTION_RESTORE_SESSION: bool('EXPERTOPTION_RESTORE_SESSION', true),
   EXPERTOPTION_ALLOW_REAL_READ: bool('EXPERTOPTION_ALLOW_REAL_READ', false),

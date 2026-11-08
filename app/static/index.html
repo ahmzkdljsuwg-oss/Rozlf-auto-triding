@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/css/styles.css?v=7" />
+  <link rel="stylesheet" href="/static/css/styles.css?v=8" />
 </head>
 <body>
 <div class="app-shell">
@@ -118,7 +118,8 @@
             <button type="button" class="reveal" data-i18n="login.show">إظهار</button>
           </div>
         </label>
-        <p class="security-note hidden" id="token-note" data-i18n="login.tokenNote">يُحفظ التوكن مشفّراً. لا توجد واجهة ExpertOption موثقة، لذا لن يُعتبر الاتصال ناجحاً ولن تُقرأ بيانات الحساب.</p>
+        <p class="security-note hidden" id="token-note" data-i18n="login.tokenNote">يُحفظ التوكن مشفّراً ولا يظهر في السجلات. تُقرأ الشموع والسعر الحيّ من جلسة حسابك عبر خدمة ROZLF bridge للتحليل فقط، دون أي تنفيذ صفقات.</p>
+        <p class="security-note hidden" id="token-help">انسخ التوكن من app.expertoption.com بعد تسجيل الدخول (أدوات المتصفح ← التخزين ← قيمة الجلسة) والصقه هنا. الجلسة القديمة تنتهي عند تسجيل الخروج.</p>
         <p class="security-note" data-i18n="login.security">تُشفّر البيانات محلياً ولا تُرسل إلى Gemini أو Telegram أو الواجهة.</p>
         <div class="form-actions">
           <button type="button" id="test-connection" class="ghost-btn" data-i18n="login.test">اختبار الاتصال</button>
@@ -464,7 +465,7 @@
 
   <div id="toast" class="toast hidden"></div>
 </div>
-<script src="/static/js/i18n.js?v=6"></script>
-<script src="/static/js/app.js?v=6"></script>
+<script src="/static/js/i18n.js?v=8"></script>
+<script src="/static/js/app.js?v=8"></script>
 </body>
 </html>

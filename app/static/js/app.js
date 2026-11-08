@@ -364,6 +364,8 @@
     $("#credential-input").placeholder = isEo ? "Session Token" : "••••••••";
     $("#credential-input").autocomplete = isEo ? "off" : "current-password";
     $("#token-note").classList.toggle("hidden", !isEo);
+    const tokenHelp = $("#token-help");
+    if (tokenHelp) tokenHelp.classList.toggle("hidden", !isEo);
     $("#login-error").textContent = "";
     showScreen("login");
   }

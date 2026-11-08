@@ -5,6 +5,7 @@ const { Database } = require('./src/db');
 const { TradingEngine } = require('./src/engine');
 const { createApp } = require('./src/app');
 const { TelegramBotController } = require('./src/telegram_bot');
+const localBridge = require('./src/local-bridge');
 
 async function main() {
   const db = await new Database().init();
@@ -17,6 +18,12 @@ async function main() {
     console.warn('WARNING: APP_SECRET_KEY is not set. Secrets (ExpertOption session token, MT5 password) ' +
       'cannot be stored encrypted, and session restore will not work. Set APP_SECRET_KEY in the environment.');
   }
+  // The ExpertOption bridge runs next to the backend when no external bridge is
+  // configured, so live account data does not depend on a second deploy target.
+  const bridgeInfo = await localBridge.ensureLocalBridge().catch(() => ({ mode: 'unknown' }));
+  console.log(`ExpertOption bridge mode: ${bridgeInfo.mode}${bridgeInfo.ready === false ? ' (not ready yet)' : ''}`);
+  await db.addLog('info', 'expertoption', `Bridge ${bridgeInfo.mode}${bridgeInfo.ready === false ? ' not ready yet' : ''}`).catch(() => {});
+
   const engine = await new TradingEngine({ db }).init();
   const telegramBot = new TelegramBotController({ notifier: engine.telegram, engine });
   engine.telegramBot = telegramBot;
@@ -39,6 +46,7 @@ async function main() {
     console.log(`Received ${signal}, shutting down`);
     server.close();
     clearInterval(botWatchdog);
+    localBridge.stopLocalBridge();
     try { await telegramBot.stop(); } catch { /* ignore */ }
     try { await engine.shutdown(); } catch { /* ignore */ }
     try { await db.close(); } catch { /* ignore */ }

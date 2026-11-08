@@ -99,7 +99,7 @@ test('validation, real-account block and analysis-only ExpertOption', async (t) 
   assert.equal(eo.status, 200);
   assert.equal(eo.body.account_status, 'analysis');
   assert.equal(eo.body.analysis_only, true);
-  assert.equal(eo.body.expertoption.connection_state, 'token_saved_unverified');
+  assert.equal(eo.body.expertoption.connection_state, 'configured_unverified');
   assert.equal(eo.body.expertoption.verified, false);
   assert.equal(eo.body.expertoption.token_present, true);
   assert.equal(eo.body.market_data_source.account_session_data, false);
@@ -107,7 +107,7 @@ test('validation, real-account block and analysis-only ExpertOption', async (t) 
 
   const session = await call(base, '/api/expertoption/session');
   assert.equal(session.status, 200);
-  assert.equal(session.body.connection_state, 'token_saved_unverified');
+  assert.equal(session.body.connection_state, 'configured_unverified');
   assert.equal(session.body.token_present, true);
   assert.equal(JSON.stringify(session.body).includes('session-token'), false);
 
@@ -329,7 +329,7 @@ test('Telegram status and test routes report real wiring instead of guessing', a
   assert.ok(calls.some((c) => c.method === 'sendMessage'));
 });
 
-test('bridge-check reports an unconfigured bridge without inventing data', async (t) => {
+test('bridge-check reports an unreachable bridge without inventing data', async (t) => {
   const { base } = await boot(t);
   const noSession = await call(base, '/api/expertoption/bridge-check');
   assert.equal(noSession.status, 409);
@@ -339,9 +339,9 @@ test('bridge-check reports an unconfigured bridge without inventing data', async
   });
   const res = await call(base, '/api/expertoption/bridge-check');
   assert.equal(res.status, 409);
-  assert.equal(res.body.configured, false);
+  assert.equal(res.body.configured, true);
   assert.equal(res.body.reachable, false);
-  assert.match(String(res.body.error), /EXPERTOPTION_BRIDGE_URL/);
+  assert.match(String(res.body.error || ''), /bridge|ExpertOption/i);
   assert.equal(res.body.execution_allowed, false);
 });
 
@@ -350,31 +350,31 @@ test('diagnostics and the asset list name the real cause instead of a generic me
 
   const pre = await call(base, '/api/expertoption/diagnostics');
   assert.equal(pre.status, 409);
-  assert.equal(pre.body.cause, 'bridge_unconfigured');
-  assert.match(String(pre.body.message_ar), /EXPERTOPTION_BRIDGE_URL/);
+  assert.equal(pre.body.cause, 'session_missing');
+  assert.ok(pre.body.message_ar.length > 0);
   assert.ok(pre.body.next_step_ar.length > 0);
   assert.equal(pre.body.execution_allowed, false);
-  assert.equal(pre.body.env.bridge_url_configured, false);
+  assert.equal(pre.body.env.bridge_url_configured, true);
   assert.equal(pre.body.ready, false);
 
   const assets = await call(base, '/api/expertoption/assets');
   assert.equal(assets.status, 409);
-  assert.equal(assets.body.cause, 'bridge_unconfigured');
+  assert.equal(assets.body.cause, 'session_missing');
   assert.deepEqual(assets.body.assets, []);
   assert.equal(assets.body.source_ready, false);
   assert.equal(assets.body.execution_allowed, false);
-  assert.match(String(assets.body.detail_ar), /EXPERTOPTION_BRIDGE_URL/);
+  assert.ok(String(assets.body.detail_ar).length > 0);
 
   const analysis = await call(base, '/api/expertoption/auto-analysis', {
     method: 'POST', body: { asset_id: 'smarty', expiry: '1m' },
   });
   assert.equal(analysis.status, 424);
   assert.equal(analysis.body.direction, 'NO TRADE');
-  assert.equal(analysis.body.reason_code, 'bridge_unconfigured');
+  assert.equal(analysis.body.reason_code, 'session_missing');
   assert.equal(analysis.body.execution_allowed, false);
 });
 
-test('an attached session without a bridge is reported as bridge_unconfigured, not "connect first"', async (t) => {
+test('an attached token with an unreachable bridge names the bridge, not a bare "connect first"', async (t) => {
   const { base } = await boot(t);
   await call(base, '/api/connect', {
     method: 'POST', body: { platform: 'expertoption', account_type: 'demo', login: 'demo@example.com', session_token: 'demo-token' },
@@ -382,14 +382,14 @@ test('an attached session without a bridge is reported as bridge_unconfigured, n
 
   const diag = await call(base, '/api/expertoption/diagnostics');
   assert.equal(diag.status, 409);
-  assert.equal(diag.body.cause, 'bridge_unconfigured');
-  assert.equal(diag.body.account_attached, false);
-  assert.equal(diag.body.session, null);
+  assert.equal(diag.body.cause, 'bridge_unreachable');
+  assert.equal(diag.body.account_attached, true);
+  assert.ok(diag.body.session);
   assert.equal(diag.body.execution_allowed, false);
 
   const assets = await call(base, '/api/expertoption/assets');
   assert.equal(assets.status, 409);
-  assert.equal(assets.body.cause, 'bridge_unconfigured');
+  assert.equal(assets.body.cause, 'bridge_unreachable');
   assert.doesNotMatch(String(assets.body.detail_ar), /^اتصل بجلسة ExpertOption أولاً\.?$/);
 
   const quote = await call(base, '/api/expertoption/quote?asset=smarty');

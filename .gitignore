@@ -49,3 +49,7 @@ Thumbs.db
 
 # Agent scratch
 .agent_tmp/
+
+# Delivery archives kept out of the repository
+ROZLF-*.zip
+*.zip

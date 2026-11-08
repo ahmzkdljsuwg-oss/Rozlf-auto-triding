@@ -51,6 +51,7 @@ class WebSocketClient:
         self.unhandled_messages = []
         self.candle_queue = deque(maxlen=1000)
         self.history_candle_queue = deque(maxlen=1000)
+        self.auth_error = None
 
     async def connect(self):
         """Connect to the WebSocket server."""
@@ -112,6 +113,10 @@ class WebSocketClient:
 
     async def recv(self, key):
         """Receive a response for the given key."""
+        if self.auth_error:
+            # Requests issued after the server rejected the token would wait
+            # forever; surface the rejection instead.
+            raise ValueError(self.auth_error)
         async with self.recv_lock:
             if key not in self.pending_responses or self.pending_responses[key].done():
                 self.pending_responses[key] = asyncio.Future()
@@ -169,9 +174,18 @@ class WebSocketClient:
 
                         # Handle error messages
                         if action == "error":
-                            self.logger.error(f"Received error: {data.get('message')}")
-                            if ns in self.pending_responses:
-                                self.pending_responses[ns].set_exception(ValueError(data.get("message")))
+                            error_message = data.get("message")
+                            self.logger.error(f"Received error: {error_message}")
+                            text = error_message if isinstance(error_message, str) else json.dumps(error_message)
+                            if "TOKEN" in text.upper() or "AUTH" in text.upper() or "LOGIN" in text.upper():
+                                # A rejected token never resolves the individual requests,
+                                # so fail every waiting call instead of hanging.
+                                self.auth_error = text
+                                for future in self.pending_responses.values():
+                                    if not future.done():
+                                        future.set_exception(ValueError(text))
+                            elif ns in self.pending_responses:
+                                self.pending_responses[ns].set_exception(ValueError(error_message))
                             continue
 
                         # Route known actions to futures
@@ -319,7 +333,6 @@ class ExpertOptionAsync:
         self.client = WebSocketClient(token, self.logger, self.url)
         self.token = token
         self.demo = demo
-        self.uid = uid
         self.profile = None
         self.assets_data = []
         self.active_subscriptions = set()
