@@ -85,6 +85,8 @@ function createApp({ engine }) {
         page_ok: probe.page_ok,
         page_title: probe.page_title,
         login_form: probe.page_password_fields > 0,
+        login_form_ms: probe.login_form_ms,
+        page_inputs: probe.page_inputs,
         page_text_len: probe.page_text_len,
         launch_ms: probe.launch_ms,
         frame_bytes: probe.frame_bytes,
