@@ -4,6 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const express = require('express');
 const config = require('./config');
+const localBridge = require('./local-bridge');
 const { dashboardTokenOk } = require('./security');
 const { RISK_KEYS } = require('./engine');
 const { integrationStatus } = require('./expertoption-session');
@@ -40,9 +41,11 @@ function createApp({ engine }) {
   });
 
   app.get('/api/health', (req, res) => {
+    const bridge = localBridge.status();
     res.json({
       ok: true, app: config.APP_NAME, version: config.APP_VERSION,
       runtime: 'node', uptime_seconds: Math.round(process.uptime()),
+      expertoption_bridge: bridge,
     });
   });
 
