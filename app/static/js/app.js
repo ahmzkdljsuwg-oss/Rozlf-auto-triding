@@ -957,6 +957,176 @@
     });
   }
 
+  /* ---------------- cloud connector (server-side Chromium) ---------------- */
+  const cloud = { session: false, frameTimer: null, statusTimer: null, viewport: { width: 430, height: 760 } };
+
+  function setCloudStatus(message, kind) {
+    const el = $('cloud-status');
+    if (!el) return;
+    el.textContent = message || '';
+    el.className = 'form-error' + (kind === 'ok' ? ' ok' : '');
+  }
+
+  function setCloudState(label, cls) {
+    const el = $('cloud-state');
+    if (!el) return;
+    el.textContent = label;
+    el.className = 'cloud-state' + (cls ? ' ' + cls : '');
+  }
+
+  function cloudUi(active) {
+    cloud.session = active;
+    ['cloud-stop', 'cloud-reload', 'cloud-enter', 'cloud-text'].forEach((key) => {
+      const el = $(key);
+      if (el) el.hidden = !active;
+    });
+    const start = $('cloud-start');
+    if (start) start.hidden = active;
+    const view = $('cloud-view');
+    const placeholder = $('cloud-placeholder');
+    if (view) view.hidden = !active;
+    if (placeholder) placeholder.hidden = active;
+  }
+
+  async function cloudInput(payload) {
+    return api('/api/cloud-connector/input', { method: 'POST', body: payload });
+  }
+
+  function cloudPoint(event) {
+    const img = $('cloud-view');
+    if (!img) return null;
+    const rect = img.getBoundingClientRect();
+    if (!rect.width || !rect.height) return null;
+    const x = ((event.clientX - rect.left) / rect.width) * cloud.viewport.width;
+    const y = ((event.clientY - rect.top) / rect.height) * cloud.viewport.height;
+    return { x: Math.round(x), y: Math.round(y) };
+  }
+
+  function startCloudFrames() {
+    if (cloud.frameTimer) return;
+    const img = $('cloud-view');
+    cloud.frameTimer = setInterval(() => {
+      if (!img || !cloud.session) return;
+      img.src = `/api/cloud-connector/frame?t=${Date.now()}`;
+    }, 400);
+  }
+
+  function stopCloudFrames() {
+    if (cloud.frameTimer) clearInterval(cloud.frameTimer);
+    cloud.frameTimer = null;
+  }
+
+  async function pollCloudStatus() {
+    let data;
+    try { data = await api('/api/cloud-connector/status'); } catch { return; }
+    if (data.viewport) cloud.viewport = data.viewport;
+    if (data.availability && data.availability.available === false) {
+      setCloudState(ar() ? 'غير متاح على هذا الخادم' : 'Unavailable', 'error');
+      setCloudStatus(data.availability.reason_ar || data.availability.reason_en || '', '');
+      return;
+    }
+    const urlEl = $('cloud-url');
+    if (urlEl) urlEl.textContent = data.url ? `${data.title ? data.title + ' — ' : ''}${data.url}` : '';
+    if (data.state === 'live') {
+      setCloudState(ar() ? 'جلسة نشطة' : 'Live', 'live');
+      if (!cloud.session) { cloudUi(true); startCloudFrames(); }
+      if (data.token_detected) setCloudStatus(ar() ? `تم التقاط الجلسة (${data.token_masked}) وجاري التحقق…` : 'Session captured, verifying…');
+    } else if (data.state === 'verifying') {
+      setCloudState(ar() ? 'تحقق' : 'Verifying', 'live');
+      setCloudStatus(ar() ? 'جاري التحقق من الجلسة مع ExpertOption…' : 'Verifying the session with ExpertOption…');
+    } else if (data.state === 'success') {
+      setCloudState(ar() ? 'متصل ومُتحقق' : 'Connected', 'success');
+      setCloudStatus(ar() ? '✅ تم التحقق من الجلسة. قراءة وتحليل فقط.' : '✅ Session verified. Read-only.', 'ok');
+      cloudUi(false);
+      stopCloudFrames();
+      await refreshSession();
+      if (cloud.statusTimer) clearInterval(cloud.statusTimer);
+      cloud.statusTimer = null;
+    } else if (data.state === 'error') {
+      setCloudState(ar() ? 'فشل' : 'Failed', 'error');
+      if (data.last_error) setCloudStatus(String(data.last_error).slice(0, 300));
+      cloudUi(false);
+      stopCloudFrames();
+      if (cloud.statusTimer) clearInterval(cloud.statusTimer);
+      cloud.statusTimer = null;
+    } else {
+      setCloudState(ar() ? 'غير مشغّل' : 'Idle', '');
+      cloudUi(false);
+      stopCloudFrames();
+    }
+  }
+
+  async function startCloud() {
+    setCloudStatus(ar() ? 'جاري تشغيل متصفح معزول على الخادم…' : 'Starting an isolated browser…');
+    setCloudState(ar() ? 'تشغيل' : 'Starting', 'live');
+    try {
+      const started = await api('/api/cloud-connector/start', { method: 'POST', body: {} });
+      if (started.viewport) cloud.viewport = started.viewport;
+      cloudUi(true);
+      startCloudFrames();
+      if (cloud.statusTimer) clearInterval(cloud.statusTimer);
+      cloud.statusTimer = setInterval(pollCloudStatus, 1600);
+      await pollCloudStatus();
+    } catch (err) {
+      setCloudState(ar() ? 'فشل' : 'Failed', 'error');
+      setCloudStatus(String(err.message || err), '');
+    }
+  }
+
+  async function stopCloud(reason) {
+    stopCloudFrames();
+    if (cloud.statusTimer) clearInterval(cloud.statusTimer);
+    cloud.statusTimer = null;
+    try { await api('/api/cloud-connector/stop', { method: 'POST', body: { reason: reason || 'user' } }); } catch { /* ignore */ }
+    cloudUi(false);
+    setCloudState(ar() ? 'غير مشغّل' : 'Idle', '');
+    if (reason !== 'linked') setCloudStatus('');
+  }
+
+  function bindCloud() {
+    const start = $('cloud-start');
+    if (start) start.addEventListener('click', startCloud);
+    const stop = $('cloud-stop');
+    if (stop) stop.addEventListener('click', () => stopCloud('user'));
+    const reload = $('cloud-reload');
+    if (reload) reload.addEventListener('click', () => {
+      cloudInput({ type: 'navigate', url: 'https://m.expertoption.com' }).catch((err) => setCloudStatus(String(err.message), ''));
+    });
+    const enter = $('cloud-enter');
+    if (enter) enter.addEventListener('click', () => {
+      cloudInput({ type: 'key', key: 'Enter' }).catch((err) => setCloudStatus(String(err.message), ''));
+    });
+    const img = $('cloud-view');
+    if (img) {
+      img.addEventListener('click', (event) => {
+        const point = cloudPoint(event);
+        if (!point) return;
+        cloudInput({ type: 'click', ...point }).catch(() => {});
+        const text = $('cloud-text');
+        if (text) text.focus({ preventScroll: true });
+      });
+      img.addEventListener('wheel', (event) => {
+        const point = cloudPoint(event);
+        if (!point) return;
+        event.preventDefault();
+        cloudInput({ type: 'scroll', ...point, dy: event.deltaY }).catch(() => {});
+      }, { passive: false });
+    }
+    const text = $('cloud-text');
+    if (text) {
+      text.addEventListener('keydown', (event) => {
+        if (event.key !== 'Enter') return;
+        event.preventDefault();
+        const value = text.value;
+        text.value = '';
+        (async () => {
+          if (value) await cloudInput({ type: 'text', text: value });
+          await cloudInput({ type: 'key', key: 'Enter' });
+        })().catch((err) => setCloudStatus(String(err.message), ''));
+      });
+    }
+  }
+
   async function initConnectPanel() {
     const tabs = document.querySelectorAll('[data-connect-tab]');
     const panels = document.querySelectorAll('[data-connect-panel]');
@@ -978,6 +1148,8 @@
 
     setText($('pair-command'), connectorCommand());
     setText($('pair-code'), '—');
+    bindCloud();
+    pollCloudStatus().catch(() => {});
     const create = $('pair-create');
     if (create) create.addEventListener('click', createPairing);
     const copyCode = $('pair-copy');

@@ -145,6 +145,66 @@ function createApp({ engine }) {
     return fail(res, 401, 'افتح بوت ROZLF في Telegram واكتب /connect لربط الجلسة والدخول للموقع.');
   });
 
+  // ---- Cloud connector: server-side isolated Chromium, driven from the phone --
+  const { CloudConnector } = require('./cloud-connector');
+  const cloudConnector = new CloudConnector({
+    engine,
+    logger: (line) => { engine.db.addLog('info', 'cloud_connector', line).catch(() => {}); },
+  });
+  app.locals.cloudConnector = cloudConnector;
+  const cloudStarts = [];
+  const cloudRateLimited = () => {
+    const now = Date.now();
+    while (cloudStarts.length && now - cloudStarts[0] > 60000) cloudStarts.shift();
+    cloudStarts.push(now);
+    return cloudStarts.length > 6;
+  };
+
+  app.get('/api/cloud-connector/status', async (req, res) => {
+    const availability = await cloudConnector.availability();
+    res.json({ ...cloudConnector.status(), availability });
+  });
+
+  app.post('/api/cloud-connector/start', async (req, res) => {
+    if (cloudRateLimited()) return fail(res, 429, 'طلبات كثيرة. انتظر دقيقة ثم أعد المحاولة.');
+    try {
+      const session = await cloudConnector.start({ login: String((req.body || {}).login || '') });
+      res.json({ ok: true, ...session, ...cloudConnector.status() });
+    } catch (err) {
+      if (err.code === 'session_active') return fail(res, 409, err.message);
+      return fail(res, 503, err.message);
+    }
+  });
+
+  app.post('/api/cloud-connector/input', async (req, res) => {
+    try {
+      const body = req.body || {};
+      res.json(await cloudConnector.input(body));
+    } catch (err) {
+      res.status(409).json({ detail: err.message });
+    }
+  });
+
+  app.post('/api/cloud-connector/stop', async (req, res) => {
+    res.json(await cloudConnector.stop(String((req.body || {}).reason || 'user')));
+  });
+
+  app.get('/api/cloud-connector/frame', async (req, res) => {
+    try {
+      const frame = await cloudConnector.frame();
+      if (!frame || !frame.jpeg) return res.status(404).end();
+      res.set({
+        'Content-Type': 'image/jpeg',
+        'Cache-Control': 'no-store, no-cache, must-revalidate, private',
+        'X-Cloud-Url': encodeURIComponent(frame.url || ''),
+        'X-Cloud-State': frame.state || '',
+      });
+      res.end(frame.jpeg);
+    } catch (err) {
+      res.status(409).json({ detail: err.message });
+    }
+  });
+
   app.get('/api/config', (req, res) => {
     // MT5 is temporarily removed from the product surface (interface, menus,
     // connections and settings). The integration code stays in the tree.

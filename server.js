@@ -47,6 +47,7 @@ async function main() {
     server.close();
     clearInterval(botWatchdog);
     localBridge.stopLocalBridge();
+    try { if (app.locals.cloudConnector) await app.locals.cloudConnector.stop('shutdown'); } catch { /* ignore */ }
     try { await telegramBot.stop(); } catch { /* ignore */ }
     try { await engine.shutdown(); } catch { /* ignore */ }
     try { await db.close(); } catch { /* ignore */ }

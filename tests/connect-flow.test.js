@@ -166,3 +166,30 @@ test('sensitive connect routes reject an anonymous caller', async (t) => {
     config.ALLOW_INSECURE_DASHBOARD = true;
   }
 });
+
+test('cloud connector routes are mounted, authenticated and idle by default', async (t) => {
+  const { base, engine } = await boot(t);
+
+  const status = await fetch(`${base}/api/cloud-connector/status`).then((r) => r.json());
+  assert.equal(status.state, 'idle');
+  assert.equal(status.execution_enabled, false);
+  assert.equal(status.read_only, true);
+  assert.equal(status.viewport.width, 430);
+  assert.ok(status.availability, 'availability is reported to the UI');
+
+  const frame = await fetch(`${base}/api/cloud-connector/frame`);
+  assert.equal(frame.status, 409);
+  assert.match((await frame.json()).detail, /موصّل/);
+
+  const stop = await fetch(`${base}/api/cloud-connector/stop`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+  }).then((r) => r.json());
+  assert.equal(stop.stopped, false);
+
+  const input = await fetch(`${base}/api/cloud-connector/input`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'click', x: 5, y: 5 }),
+  });
+  assert.equal(input.status, 409);
+
+  assert.ok(engine, 'engine is wired to the connector');
+});
