@@ -39,6 +39,35 @@ async function main() {
     console.log(`Demo execution mode; real trading approved: ${config.REAL_TRADING_APPROVED}`);
   });
 
+  // Boot-time capability probe: launches the isolated browser once on the real host,
+  // opens the ExpertOption login page, captures JPEG frames, sends input and records
+  // peak memory. A crash during the probe is detected on the next boot and skipped so
+  // the service can never enter a restart loop because of it.
+  const probeTimer = setTimeout(async () => {
+    const connector = app.locals.cloudConnector;
+    if (!connector || !connector.enabled()) return;
+    if (String(process.env.CLOUD_CONNECTOR_PROBE || 'true').toLowerCase() === 'false') return;
+    let previous = null;
+    try { previous = JSON.parse(await db.getSetting('cloud_probe_state', 'null')); } catch { previous = null; }
+    if (previous && previous.status === 'running') {
+      await db.setSetting('cloud_probe_state', JSON.stringify({ status: 'crashed', at: previous.at })).catch(() => {});
+      console.warn(`cloud connector probe: previous run at ${previous.at} did not finish (host restarted) - skipping this boot`);
+      return;
+    }
+    const at = new Date().toISOString();
+    await db.setSetting('cloud_probe_state', JSON.stringify({ status: 'running', at })).catch(() => {});
+    try {
+      const result = await connector.runProbe();
+      await db.setSetting('cloud_probe_state', JSON.stringify({
+        status: result && result.ok ? 'ok' : 'failed', at,
+        reported: result && result.error ? String(result.error).slice(0, 200) : null,
+      })).catch(() => {});
+    } catch (err) {
+      await db.setSetting('cloud_probe_state', JSON.stringify({ status: 'failed', at, reported: String(err.message).slice(0, 200) })).catch(() => {});
+    }
+  }, 20000);
+  probeTimer.unref();
+
   let shuttingDown = false;
   const shutdown = async (signal) => {
     if (shuttingDown) return;
@@ -46,6 +75,7 @@ async function main() {
     console.log(`Received ${signal}, shutting down`);
     server.close();
     clearInterval(botWatchdog);
+    clearTimeout(probeTimer);
     localBridge.stopLocalBridge();
     try { if (app.locals.cloudConnector) await app.locals.cloudConnector.stop('shutdown'); } catch { /* ignore */ }
     try { await telegramBot.stop(); } catch { /* ignore */ }

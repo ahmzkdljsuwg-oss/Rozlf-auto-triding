@@ -43,6 +43,47 @@ function startLoginPage(port) {
   });
 }
 
+function startBlankPage(port) {
+  return new Promise((resolve) => {
+    const server = http.createServer((req, res) => {
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.end('<!doctype html><title>probe target</title><h1>probe</h1>');
+    });
+    server.listen(port, '127.0.0.1', () => resolve(server));
+  });
+}
+
+test('the host probe separates browser capability from a real account connection', { timeout: 120000 }, async (t) => {
+  if (!chromiumAvailable()) {
+    t.skip('no chromium on this host');
+    return;
+  }
+  const port = 9451;
+  const page = await startBlankPage(port);
+  const { CloudConnector } = require('../src/cloud-connector');
+  const connector = new CloudConnector({ engine: null });
+  t.after(async () => {
+    await connector.stop('test');
+    await new Promise((r) => page.close(r));
+  });
+
+  const result = await connector.runProbe({ url: `http://127.0.0.1:${port}/` });
+  assert.equal(result.ok, true, `probe failed: ${result.error}`);
+  assert.ok(result.launch_ms > 0, 'browser launch was measured');
+  assert.ok(result.frames > 0, 'at least one JPEG frame was captured');
+  assert.ok(result.frame_bytes > 1000, 'the JPEG frame has real content');
+  assert.equal(result.input_ok, true, 'touch input and typing were accepted');
+  assert.ok(typeof result.peak_rss_mb === 'number', 'peak memory was sampled');
+
+  const status = connector.status();
+  assert.equal(status.probe.browser_launch_ok, true);
+  assert.equal(status.probe.frames_ok, true);
+  assert.equal(status.probe.input_ok, true);
+  assert.equal(status.account_verified, false, 'a working browser is not an account connection');
+  assert.equal(status.state, 'idle');
+  assert.equal(status.execution_enabled, false);
+});
+
 test('cloud connector streams frames, accepts input and links a verified session', { timeout: 120000 }, async (t) => {
   if (!chromiumAvailable()) {
     t.skip('no chromium on this host');

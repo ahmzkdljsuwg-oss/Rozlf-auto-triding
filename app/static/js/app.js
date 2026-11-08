@@ -1016,10 +1016,50 @@
     cloud.frameTimer = null;
   }
 
+  function cloudBadge(id, state, okText, badText, pendingText) {
+    const el = $(id);
+    if (!el) return;
+    el.className = '';
+    if (state === 'ok') { el.textContent = okText; el.className = 'ok'; }
+    else if (state === 'bad') { el.textContent = badText; el.className = 'bad'; }
+    else { el.textContent = pendingText || '—'; el.className = 'pending'; }
+  }
+
+  function renderCloudProbe(data) {
+    const p = data.probe || null;
+    const ar = document.documentElement.lang !== 'en';
+    if (!p || !p.ran) {
+      cloudBadge('cloud-check-browser', 'pending', '', '', ar ? 'لم يُفحص بعد' : 'Not checked yet');
+      cloudBadge('cloud-check-frames', 'pending', '', '', ar ? 'لم يُفحص بعد' : 'Not checked yet');
+      const note = $('cloud-probe');
+      if (note) note.textContent = '';
+      cloudBadge('cloud-check-account', data.account_verified ? 'ok' : 'bad',
+        ar ? 'متصل ومُتحقق' : 'Verified', ar ? 'غير متصل' : 'Not connected', '—');
+      return;
+    }
+    cloudBadge('cloud-check-browser', p.browser_launch_ok ? 'ok' : 'bad',
+      ar ? `نعم (${p.launch_ms || 0} م‑ث)` : `Yes (${p.launch_ms || 0} ms)`,
+      ar ? 'فشل' : 'Failed', '—');
+    cloudBadge('cloud-check-frames', p.frames_ok && p.input_ok ? 'ok' : 'bad',
+      ar ? `نعم (${p.frame_bytes || 0} بايت)` : `Yes (${p.frame_bytes || 0} bytes)`,
+      ar ? 'فشل' : 'Failed', '—');
+    cloudBadge('cloud-check-account', data.account_verified ? 'ok' : 'bad',
+      ar ? 'متصل ومُتحقق' : 'Verified', ar ? 'غير متصل — يحتاج تسجيل دخولك' : 'Not connected', '—');
+    const note = $('cloud-probe');
+    if (note) {
+      const mem = p.peak_rss_mb ? (ar ? `أعلى استهلاك ذاكرة: ${p.peak_rss_mb}MB` : `Peak memory: ${p.peak_rss_mb}MB`) : '';
+      const lim = p.limit_mb ? (ar ? ` من ${p.limit_mb}MB` : ` of ${p.limit_mb}MB`) : '';
+      const when = p.at ? new Date(p.at).toLocaleString(ar ? 'ar' : 'en') : '';
+      note.textContent = [ar ? 'فحص الخادم' : 'Host probe', when, mem ? mem + lim : '', p.error ? (ar ? 'خطأ: ' + p.error : 'Error: ' + p.error) : '']
+        .filter(Boolean).join(' · ');
+    }
+  }
+
   async function pollCloudStatus() {
     let data;
     try { data = await api('/api/cloud-connector/status'); } catch { return; }
     if (data.viewport) cloud.viewport = data.viewport;
+    renderCloudProbe(data);
     if (data.availability && data.availability.available === false) {
       setCloudState(ar() ? 'غير متاح على هذا الخادم' : 'Unavailable', 'error');
       setCloudStatus(data.availability.reason_ar || data.availability.reason_en || '', '');
@@ -1030,7 +1070,7 @@
     if (data.state === 'live') {
       setCloudState(ar() ? 'جلسة نشطة' : 'Live', 'live');
       if (!cloud.session) { cloudUi(true); startCloudFrames(); }
-      if (data.token_detected) setCloudStatus(ar() ? `تم التقاط الجلسة (${data.token_masked}) وجاري التحقق…` : 'Session captured, verifying…');
+      if (data.token_detected) setCloudStatus(ar() ? 'تم التقاط الجلسة وجاري التحقق منها…' : 'Session captured, verifying…');
     } else if (data.state === 'verifying') {
       setCloudState(ar() ? 'تحقق' : 'Verifying', 'live');
       setCloudStatus(ar() ? 'جاري التحقق من الجلسة مع ExpertOption…' : 'Verifying the session with ExpertOption…');

@@ -70,11 +70,29 @@ function createApp({ engine }) {
       if (me && me.ok && me.username) bot.botUsername = me.username;
     }
     const username = (bot && bot.botUsername) || config.TELEGRAM_BOT_USERNAME || '';
+    const connector = app.locals.cloudConnector;
+    const probe = connector ? connector.probeSummary() : null;
     res.json({
       authenticated: ownerAuthorized(req),
       telegram_configured: Boolean(config.TELEGRAM_BOT_TOKEN && config.TELEGRAM_CHAT_ID),
       telegram_bot_username: username,
       app: config.APP_NAME,
+      cloud_connector: probe ? {
+        enabled: probe.ran || connector.enabled(),
+        chromium_runs: probe.browser_launch_ok,
+        frames_ok: probe.frames_ok,
+        input_ok: probe.input_ok,
+        page_ok: probe.page_ok,
+        launch_ms: probe.launch_ms,
+        frame_bytes: probe.frame_bytes,
+        peak_rss_mb: probe.peak_rss_mb,
+        peak_pss_mb: probe.peak_pss_mb,
+        limit_mb: probe.limit_mb,
+        server_rss_mb: probe.server_rss_mb,
+        checked_at: probe.at,
+        ok: probe.ok === true,
+        error: probe.error,
+      } : null,
     });
   });
 

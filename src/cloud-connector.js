@@ -37,6 +37,57 @@ function mask(value) {
   return `${value.slice(0, 4)}…${value.slice(-4)} (${value.length})`;
 }
 
+
+function memLimitMb() {
+  const files = ['/sys/fs/cgroup/memory.max', '/sys/fs/cgroup/memory/memory.limit_in_bytes'];
+  for (const f of files) {
+    try {
+      const raw = fs.readFileSync(f, 'utf8').trim();
+      if (raw && raw !== 'max') {
+        const bytes = Number(raw);
+        if (Number.isFinite(bytes) && bytes > 0 && bytes < 1e15) return Math.round(bytes / 1048576);
+      }
+    } catch { /* ignore */ }
+  }
+  return null;
+}
+
+function groupMem(pgid) {
+  const out = { rss: 0, pss: 0 };
+  if (!pgid) return out;
+  let pids = [];
+  try { pids = fs.readdirSync('/proc').filter((n) => /^\d+$/.test(n)); } catch { return out; }
+  for (const pid of pids) {
+    try {
+      const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
+      const close = stat.lastIndexOf(')');
+      const fields = stat.slice(close + 2).split(' ');
+      if (Number(fields[2]) !== pgid) continue;
+      const status = fs.readFileSync(`/proc/${pid}/status`, 'utf8');
+      const rss = status.match(/^VmRSS:\s+(\d+) kB/m);
+      if (rss) out.rss += Number(rss[1]);
+      try {
+        const rollup = fs.readFileSync(`/proc/${pid}/smaps_rollup`, 'utf8');
+        const pss = rollup.match(/^Pss:\s+(\d+) kB/m);
+        if (pss) out.pss += Number(pss[1]);
+        else if (rss) out.pss += Number(rss[1]);
+      } catch { if (rss) out.pss += Number(rss[1]); }
+    } catch { /* process vanished */ }
+  }
+  out.rss = Math.round(out.rss / 1024);
+  out.pss = Math.round(out.pss / 1024);
+  return out;
+}
+
+function groupRssMb(pgid) { return groupMem(pgid).rss; }
+
+function selfRssMb() {
+  try {
+    const m = fs.readFileSync('/proc/self/status', 'utf8').match(/^VmRSS:\s+(\d+) kB/m);
+    return m ? Math.round(Number(m[1]) / 1024) : null;
+  } catch { return null; }
+}
+
 const READ_STATE_JS = `(() => {
   const out = [String(document.cookie || '')];
   try {
@@ -53,6 +104,16 @@ const READ_STATE_JS = `(() => {
   } catch (e) { /* ignore */ }
   return out.join('\\n');
 })()`;
+
+function navTarget(url) {
+  let parsed;
+  try { parsed = new URL(String(url || '')); } catch { return LOGIN_URL; }
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return LOGIN_URL;
+  const host = parsed.hostname.toLowerCase();
+  if (/(^|\.)expertoption\.com$/.test(host)) return parsed.href;
+  if (host === '127.0.0.1' || host === 'localhost') return parsed.href;
+  return LOGIN_URL;
+}
 
 function findSystemChromium() {
   const candidates = [
@@ -77,6 +138,8 @@ class CloudConnector {
     this.lastOutcome = null;
     this.lastLaunchMs = null;
     this.binary = '';
+    this.probe = null;
+    this.probing = false;
   }
 
   enabled() {
@@ -124,15 +187,113 @@ class CloudConnector {
       title: s ? s.title : (this.lastOutcome ? this.lastOutcome.title : null),
       viewport: VIEWPORT,
       token_detected: s ? Boolean(s.tokenSeen) : Boolean(this.lastOutcome && this.lastOutcome.token_seen),
-      token_masked: s && s.tokenSeen ? s.tokenMasked : (this.lastOutcome ? this.lastOutcome.token_masked : null),
+      token_masked: null,
       last_error: this.lastError || null,
       verification: s ? s.verification : null,
       read_only: true,
       execution_enabled: false,
+      probe: this.probeSummary(),
+      account_verified: Boolean(s && s.verification && s.verification.verified),
     };
   }
 
-  async start({ login = '' } = {}) {
+
+  probeSummary() {
+    const p = this.probe;
+    const limit = memLimitMb();
+    const base = {
+      ran: Boolean(p),
+      at: p ? p.at : null,
+      browser_launch_ok: p ? Boolean(p.launch_ms) : false,
+      frames_ok: p ? p.frames > 0 : false,
+      input_ok: p ? Boolean(p.input_ok) : false,
+      page_ok: p ? Boolean(p.page_ok) : false,
+      launch_ms: p ? p.launch_ms : null,
+      frame_bytes: p ? p.frame_bytes : null,
+      peak_rss_mb: p ? p.peak_rss_mb : null,
+      peak_pss_mb: p ? (p.peak_pss_mb || null) : null,
+      server_rss_mb: selfRssMb(),
+      limit_mb: limit,
+      error: p && p.error ? String(p.error).slice(0, 300) : null,
+    };
+    if (!p) return base;
+    return { ...base, ok: Boolean(p.ok) };
+  }
+
+  async runProbe({ url = LOGIN_URL } = {}) {
+    if (this.probing) return this.probe;
+    if (this.session) {
+      this.log('cloud connector probe skipped: a session is active');
+      return this.probe;
+    }
+    this.probing = true;
+    const limit = memLimitMb();
+    const result = {
+      at: new Date().toISOString(), ok: false, launch_ms: null, frames: 0, frame_bytes: 0,
+      input_ok: false, page_ok: false, page_url: '', page_title: '',
+      peak_rss_mb: 0, peak_pss_mb: 0, limit_mb: limit, server_rss_mb_before: selfRssMb(), error: null,
+    };
+    let sample = null;
+    try {
+      const exe = await this.resolveBinary();
+      result.executable_basename = path.basename(exe);
+      result.executable_from = exe === findSystemChromium() ? 'system' : 'bundled';
+      const started = await this.start({});
+      result.launch_ms = this.lastLaunchMs;
+      const pgid = this.session && this.session.child ? this.session.child.pid : 0;
+      sample = setInterval(() => {
+        const mem = groupMem(pgid);
+        if (mem.rss > result.peak_rss_mb) result.peak_rss_mb = mem.rss;
+        if (mem.pss > (result.peak_pss_mb || 0)) result.peak_pss_mb = mem.pss;
+      }, 400);
+      if (sample.unref) sample.unref();
+
+      const s = this.session;
+      const deadline = Date.now() + 25000;
+      while (Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 700));
+        if (!this.session) break;
+        const href = String(s.url || '');
+        if (/expertoption\.com/i.test(href) && href !== url) { result.page_ok = true; break; }
+      }
+      if (!this.session) throw new Error('أُغلقت الجلسة أثناء الفحص.');
+
+      for (let i = 0; i < 3; i += 1) {
+        const shot = await this.frame();
+        if (shot.jpeg && shot.jpeg.length > 0) {
+          result.frames += 1;
+          result.frame_bytes = shot.jpeg.length;
+        }
+        await new Promise((r) => setTimeout(r, 700));
+      }
+      result.page_url = String(s.url || '');
+      result.page_title = String(s.title || '');
+      result.page_ok = /^https?:/i.test(result.page_url);
+
+      await this.input({ type: 'scroll', x: 200, y: 400, dy: 240 });
+      await this.input({ type: 'text', text: 'rozlf-probe' });
+      await this.input({ type: 'key', key: 'Escape' });
+      await this.input({ type: 'click', x: 20, y: 300 });
+      result.input_ok = true;
+
+      result.peak_rss_mb = Math.max(result.peak_rss_mb, groupRssMb(pgid));
+      result.server_rss_mb_after = selfRssMb();
+      result.ok = Boolean(result.launch_ms) && result.frames > 0 && result.input_ok;
+    } catch (err) {
+      result.error = err && err.message ? err.message : String(err);
+      if (sample) clearInterval(sample);
+      try { await this.stop('probe_failed'); } catch { /* ignore */ }
+    } finally {
+      if (sample) clearInterval(sample);
+    }
+    if (this.session) { try { await this.stop('probe'); } catch { /* ignore */ } }
+    this.probe = result;
+    this.probing = false;
+    this.log(`cloud connector probe: ok=${result.ok} launch=${result.launch_ms}ms frames=${result.frames} peak_rss=${result.peak_rss_mb}MB peak_pss=${result.peak_pss_mb}MB limit=${result.limit_mb}MB${result.error ? ' error=' + result.error.slice(0, 120) : ''}`);
+    return result;
+  }
+
+  async start({ login = '', url = '' } = {}) {
     if (!this.enabled()) throw new Error('الموصّل السحابي معطّل على هذا الخادم.');
     if (this.session) {
       if (this.session.state === 'live') {
@@ -184,7 +345,7 @@ class CloudConnector {
         width: VIEWPORT.width, height: VIEWPORT.height, deviceScaleFactor: 1, mobile: true,
       });
       await cdp.send('Emulation.setUserAgentOverride', { userAgent: MOBILE_UA, platform: 'Linux armv8l' });
-      await cdp.send('Page.navigate', { url: LOGIN_URL });
+      await cdp.send('Page.navigate', { url: navTarget(url) });
       this.lastLaunchMs = Date.now() - t0;
       this.lastError = '';
       session.state = 'live';
@@ -248,7 +409,7 @@ class CloudConnector {
     session.tokenMasked = mask(token);
     session.state = 'verifying';
     const login = ((text.match(/login=(.*)/) || [])[1] || '').trim();
-    this.log(`cloud connector captured a session token (${session.tokenMasked})`);
+    this.log('cloud connector captured a session token (value never logged)');
     try {
       const result = await this.engine.attachAccount({
         platform: 'expertoption', accountType: 'demo', login, sessionToken: token,
@@ -287,6 +448,9 @@ class CloudConnector {
   async frame() {
     const s = this.session;
     if (!s || !s.cdp) throw new Error('لا توجد جلسة موصّل نشطة.');
+    // Never capture the screen after a session token exists: the UI only needs the
+    // pre-login view, and a verified account screen must not be stored or streamed.
+    if (s.tokenSeen) return { jpeg: s.lastFrame, at: s.lastFrameAt, url: s.url, title: s.title, state: s.state };
     const now = Date.now();
     if (!s.lastFrame || now - s.lastFrameAt > FRAME_MIN_MS) {
       let shot = null;
@@ -359,7 +523,7 @@ class CloudConnector {
     const terminal = s.state === 'success' || s.state === 'error' ? s.state : 'idle';
     this.lastOutcome = {
       state: terminal, error: this.lastError || null, reason, at: new Date().toISOString(),
-      token_seen: Boolean(s.tokenSeen), token_masked: s.tokenMasked || null, url: s.url || null, title: s.title || null,
+      token_seen: Boolean(s.tokenSeen), token_masked: null, url: s.url || null, title: s.title || null,
     };
     this.session = null;
     if (s.pollTimer) clearInterval(s.pollTimer);
