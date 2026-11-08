@@ -98,9 +98,27 @@ class FakeClient:
         return gen()
 
 
+async def fake_diagnose(regions=None, timeout=None):
+    names = regions or ["EUROPE"]
+    return [
+        {
+            "region": name,
+            "url": manager.handshake.url_for(name),
+            "ok": name == "EUROPE",
+            "status": 101 if name == "EUROPE" else None,
+            "handshake_ms": 15.0 if name == "EUROPE" else None,
+            "error": None if name == "EUROPE" else "timeout",
+            "error_kind": None if name == "EUROPE" else "timeout",
+        }
+        for name in names
+    ]
+
+
 @pytest_asyncio.fixture
 async def client(monkeypatch):
     monkeypatch.setattr(manager, "ExpertOptionAsync", FakeClient)
+    monkeypatch.setattr(manager.handshake, "diagnose", fake_diagnose)
+    manager.handshake.clear_cache()
     manager.registry.sessions.clear()
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://bridge") as c:

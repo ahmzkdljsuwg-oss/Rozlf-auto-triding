@@ -131,6 +131,7 @@ class ExpertOptionSession {
     this.verified = false;
     this.verifiedAt = null;
     this.lastError = null;
+    this.lastErrorCode = null;
     this.sessionExpired = false;
     this.accountInfoCache = null;
     this._instruments = null;
@@ -161,6 +162,7 @@ class ExpertOptionSession {
     this.accountInfoCache = source.account || null;
     this.accountLoginWarning = source.account_login_warning || null;
     this.lastError = null;
+    this.lastErrorCode = null;
     return this.status();
   }
 
@@ -186,6 +188,7 @@ class ExpertOptionSession {
       account: this.accountInfoCache,
       account_login_warning: this.accountLoginWarning,
       last_error: this.lastError,
+      last_error_code: this.lastErrorCode || null,
       reason_en: this.configured ? this.lastError : (this.tokenPresent ? GATEWAY_REASON_EN : 'No ExpertOption credential was supplied.'),
       reason_ar: this.configured ? null : GATEWAY_REASON_AR,
       created_at: this.createdAt,
@@ -314,6 +317,21 @@ class ExpertOptionSession {
           throw new ExpertOptionError(this.lastError.slice(0, 200), 'connect_failed', { status: 502 });
         }
       }
+      if (response.status === 503 || response.status === 504) {
+        // Endpoint/handshake failures are precise: report the probed cause
+        // instead of collapsing it into a generic gateway error.
+        this.connected = false;
+        this.verified = false;
+        const detail = await response.json().catch(() => null);
+        const inner = detail && (detail.error || detail);
+        const code = inner && typeof inner === 'object' ? String(inner.code || '') : '';
+        const message = inner && typeof inner === 'object' ? String(inner.message || '') : '';
+        if (code === 'handshake_unreachable' || code === 'connect_timeout') {
+          this.lastError = (message || 'No ExpertOption endpoint could be reached').slice(0, 300);
+          this.lastErrorCode = code;
+          throw new ExpertOptionError(this.lastError, code, { status: response.status });
+        }
+      }
       if (response.status === 429 || response.status >= 500) {
         const retryAfterMs = Number(response.headers?.get?.('retry-after') || 0) * 1000;
         if (attempt < retries) {
@@ -365,6 +383,7 @@ class ExpertOptionSession {
 
   async verify() {
     this.lastError = null;
+    this.lastErrorCode = null;
     if (!this.configured) {
       this.connected = false;
       this.verified = false;

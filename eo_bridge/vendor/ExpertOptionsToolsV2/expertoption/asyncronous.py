@@ -73,6 +73,23 @@ class WebSocketClient:
                 connect_kwargs["additional_headers"] = headers
             else:
                 connect_kwargs["extra_headers"] = headers
+            # ROZLF patch: the handshake must be explicit. Without open_timeout the
+            # library waits on a silent socket; without proxy control an inherited
+            # HTTPS_PROXY can stall the CONNECT; without ping settings a dead link
+            # stays "open" and looks like a market freeze.
+            import os as _os
+            connect_kwargs["open_timeout"] = float(_os.getenv("EO_BRIDGE_WS_OPEN_TIMEOUT", "30"))
+            if "close_timeout" in params:
+                connect_kwargs["close_timeout"] = float(_os.getenv("EO_BRIDGE_WS_CLOSE_TIMEOUT", "5"))
+            if "ping_interval" in params:
+                connect_kwargs["ping_interval"] = float(_os.getenv("EO_BRIDGE_WS_PING_INTERVAL", "20"))
+            if "ping_timeout" in params:
+                connect_kwargs["ping_timeout"] = float(_os.getenv("EO_BRIDGE_WS_PING_TIMEOUT", "20"))
+            if "max_size" in params:
+                connect_kwargs["max_size"] = int(_os.getenv("EO_BRIDGE_WS_MAX_SIZE", str(8 * 1024 * 1024)))
+            if "proxy" in params:
+                raw_proxy = _os.getenv("EO_BRIDGE_WS_PROXY", "none").strip()
+                connect_kwargs["proxy"] = None if raw_proxy.lower() in {"", "none", "off", "false", "direct"} else raw_proxy
             self.ws = await websockets.connect(self.url, **connect_kwargs)
             self.connected = True
             self.logger.info("WebSocket connected successfully")

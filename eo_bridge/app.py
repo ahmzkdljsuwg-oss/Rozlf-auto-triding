@@ -20,6 +20,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.responses import JSONResponse
 
+from . import handshake
 from .manager import (
     SUPPORTED_PERIODS,
     TIMEFRAME_SECONDS,
@@ -204,6 +205,27 @@ async def health() -> Dict[str, Any]:
         "key_configured": bool(BRIDGE_KEY),
         "sessions": registry.describe(),
         "time": int(time.time()),
+    }
+
+
+@app.get("/handshake", dependencies=[Depends(require_key)])
+async def handshake_diagnostics() -> Dict[str, Any]:
+    """Probe every ExpertOption regional endpoint from this host.
+
+    Answers the real question behind "WebSocket opening handshake timeout":
+    which regional hosts can this machine reach, and what did each answer.
+    """
+    probes = await handshake.diagnose()
+    reachable = [p["region"] for p in probes if p.get("ok")]
+    return {
+        "source": "handshake-probe",
+        "origin": handshake.origin_header(),
+        "proxy": handshake._proxy(),
+        "region_order": handshake.region_order(),
+        "cached_region": handshake.cached_region(),
+        "reachable": reachable,
+        "probes": probes,
+        "updated_at": int(time.time()),
     }
 
 

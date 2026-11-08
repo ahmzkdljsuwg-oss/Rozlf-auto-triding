@@ -144,6 +144,26 @@ test('asset ids are only trusted after matching the live instrument list', () =>
   assert.equal(byKey['usdjpy-otc'].id, null);
 });
 
+test('the live SMRTY symbol is recognised as Smarty', () => {
+  const live = [{ id: '240', symbol: 'SMRTY', name: 'SMRTY', category: 'smarty', otc: false, active: true, timeframes: [60] }];
+  const resolved = resolveInstrument(live, 'smarty');
+  assert.ok(resolved);
+  assert.equal(resolved.instrument.id, '240');
+  assert.equal(resolved.resolved_by, 'name');
+
+  const listed = describeAssets(live).find((a) => a.key === 'smarty');
+  assert.equal(listed.available, true);
+  assert.equal(listed.id_matches_requested, true);
+});
+
+test('an asset found under a new id reports the id hint as unverified', () => {
+  const live = [{ id: '412', symbol: 'SMARTY_INDEX', name: 'Smarty Index', category: 'smarty', otc: false, active: true, timeframes: [60] }];
+  const listed = describeAssets(live).find((a) => a.key === 'smarty');
+  assert.equal(listed.available, true);
+  assert.equal(listed.id, '412');
+  assert.equal(listed.id_matches_requested, false);
+});
+
 test('a reused legacy numeric ID cannot mislabel an unrelated live instrument', () => {
   const unrelated = [{ id: '240', symbol: 'SOME_OTHER_ASSET', name: 'Unrelated Index', active: true }];
   assert.equal(resolveInstrument(unrelated, 'smarty'), null);
@@ -414,4 +434,30 @@ test('a bridge that lost the broker connection stops the analysis with connect_f
   assert.equal(result.direction, 'NO TRADE');
   assert.equal(session.verified, false);
   assert.ok(['connect_failed', 'not_connected'].includes(result.reason_code));
+});
+
+test('an unreachable ExpertOption endpoint surfaces the probed cause, not a generic 5xx', async () => {
+  const reply = (status, body) => ({
+    ok: status >= 200 && status < 300,
+    status,
+    headers: { get: () => null },
+    json: async () => body,
+    text: async () => JSON.stringify(body),
+  });
+  const body = {
+    error: {
+      code: 'handshake_unreachable',
+      message: 'No ExpertOption WebSocket endpoint completed a handshake from this host (EUROPE: timeout)',
+    },
+  };
+  const session = new ExpertOptionSession({
+    login: '900001', baseUrl: 'https://bridge.test', apiKey: 'bridge-key', token: 'eo-session-token',
+    fetchImpl: async () => reply(503, body),
+    minIntervalMs: 0, retries: 2, candleCacheMs: 0, instrumentCacheMs: 0,
+  });
+  const status = await session.verify();
+  assert.equal(status.verified, false);
+  assert.equal(status.connected, false);
+  assert.equal(status.last_error_code, 'handshake_unreachable');
+  assert.match(String(status.reason_en || status.last_error || ''), /handshake/i);
 });

@@ -24,6 +24,7 @@ if VENDOR_DIR not in sys.path:
 
 from .vendor.ExpertOptionsToolsV2.constants import DEFAULT_SERVER, SERVERS  # noqa: E402
 from .vendor.ExpertOptionsToolsV2.expertoption.asyncronous import ExpertOptionAsync  # noqa: E402
+from . import handshake  # noqa: E402
 
 log = logging.getLogger("rozlf.eo_bridge")
 
@@ -96,10 +97,50 @@ class Session:
     last_ok_at: Optional[float] = None
     last_error: Optional[str] = None
     reconnects: int = 0
+    endpoint_region: Optional[str] = None
+    handshake_probes: List[Dict[str, Any]] = field(default_factory=list)
 
     @property
     def key(self) -> str:
         return session_key(self.token)
+
+    async def _resolve_endpoints(self) -> List[str]:
+        """Probe regional endpoints and return them best-first.
+
+        A handshake timeout usually means this host cannot reach that regional
+        host (geo block, filtered network) — more waiting does not fix it, moving
+        to a reachable region does.
+        """
+        order = handshake.candidate_regions()
+        cached = handshake.cached_region()
+        if cached:
+            self.endpoint_region = cached
+            return [handshake.url_for(cached)] + [handshake.url_for(r) for r in order if r != cached]
+        probes = await handshake.diagnose(order)
+        self.handshake_probes = probes
+        healthy = [p for p in probes if p.get("ok")]
+        if not healthy:
+            summary = "; ".join(
+                f"{p['region']}: {p.get('error_kind') or 'failed'}" for p in probes
+            )[:400]
+            self.last_error = f"handshake_unreachable: {summary}"
+            log.warning("No ExpertOption endpoint answered a handshake: %s", summary)
+            raise BridgeError(
+                "No ExpertOption WebSocket endpoint completed a handshake from this host "
+                f"({summary})",
+                code="handshake_unreachable",
+                status=503,
+            )
+        healthy.sort(key=lambda p: p.get("handshake_ms") or 1e9)
+        chosen = str(healthy[0]["region"])
+        handshake.cache_region(chosen, probes)
+        self.endpoint_region = chosen
+        log.info(
+            "ExpertOption endpoint %s handshake ok in %sms",
+            chosen, healthy[0].get("handshake_ms"),
+        )
+        rest = [name for name in order if name != chosen]
+        return [handshake.url_for(chosen)] + [handshake.url_for(name) for name in rest]
 
     async def ensure_client(self) -> ExpertOptionAsync:
         if self.client and self.client.client.connected:
@@ -112,44 +153,54 @@ class Session:
             self.client = None
             self.quotes.clear()
             self.reconnects += 1
+        try:
+            urls = await self._resolve_endpoints()
+        except BridgeError:
+            raise
         last: Optional[Exception] = None
         for attempt in range(CONNECT_RETRIES):
-            try:
-                client = ExpertOptionAsync(self.token, demo=self.demo, url=base_url())
-                await asyncio.wait_for(client.connect(), timeout=CONNECT_TIMEOUT)
-                self.client = client
-                self.quotes.clear()
-                self.connected_at = time.time()
-                self.last_ok_at = time.time()
-                self.last_error = None
-                if attempt or self.reconnects:
-                    log.info("ExpertOption session reconnected (attempt %s)", attempt + 1)
-                return client
-            except ValueError as exc:
-                # The server answered: this token is not accepted. Retrying
-                # cannot help, so report it precisely instead of hanging.
-                message = str(exc)[:200]
-                self.last_error = f"session_invalid: {message}"
-                log.warning("ExpertOption rejected the session token: %s", message)
-                raise BridgeError(
-                    f"ExpertOption rejected the session token ({message})",
-                    code="session_invalid",
-                    status=401,
-                ) from exc
-            except asyncio.TimeoutError as exc:
-                self.last_error = "connect_timeout"
-                log.warning("ExpertOption connect timed out after %ss", CONNECT_TIMEOUT)
-                raise BridgeError(
-                    "ExpertOption did not answer before the connection timeout",
-                    code="connect_timeout",
-                    status=504,
-                ) from exc
-            except Exception as exc:  # noqa: BLE001 - surfaced to the caller
-                last = exc
-                self.reconnects += 1
-                self.last_error = f"{type(exc).__name__}: {exc}"[:300]
-                log.warning("ExpertOption connect attempt %s failed: %s", attempt + 1, self.last_error)
-                await asyncio.sleep(CONNECT_BACKOFF * (2 ** attempt))
+            for url in urls:
+                try:
+                    client = ExpertOptionAsync(self.token, demo=self.demo, url=url)
+                    await asyncio.wait_for(client.connect(), timeout=CONNECT_TIMEOUT)
+                    self.client = client
+                    self.endpoint_region = handshake.region_for_url(url) or self.endpoint_region
+                    self.quotes.clear()
+                    self.connected_at = time.time()
+                    self.last_ok_at = time.time()
+                    self.last_error = None
+                    if attempt or self.reconnects:
+                        log.info("ExpertOption session reconnected (attempt %s)", attempt + 1)
+                    return client
+                except ValueError as exc:
+                    # The server answered: this token is not accepted. Retrying
+                    # cannot help, so report it precisely instead of hanging.
+                    message = str(exc)[:200]
+                    self.last_error = f"session_invalid: {message}"
+                    log.warning("ExpertOption rejected the session token: %s", message)
+                    raise BridgeError(
+                        f"ExpertOption rejected the session token ({message})",
+                        code="session_invalid",
+                        status=401,
+                    ) from exc
+                except asyncio.TimeoutError as exc:
+                    self.last_error = "connect_timeout"
+                    log.warning("ExpertOption connect timed out after %ss on %s", CONNECT_TIMEOUT, url)
+                    handshake.clear_cache()
+                    urls = await self._resolve_endpoints()
+                    last = exc
+                except Exception as exc:  # noqa: BLE001 - surfaced to the caller
+                    last = exc
+                    self.reconnects += 1
+                    self.last_error = f"{type(exc).__name__}: {exc}"[:300]
+                    log.warning("ExpertOption connect attempt %s failed on %s: %s", attempt + 1, url, self.last_error)
+            await asyncio.sleep(CONNECT_BACKOFF * (2 ** attempt))
+        if self.last_error == "connect_timeout":
+            raise BridgeError(
+                "ExpertOption did not answer before the connection timeout",
+                code="connect_timeout",
+                status=504,
+            )
         raise BridgeError(
             f"Could not connect to ExpertOption: {self.last_error or last}",
             code="connect_failed",
@@ -397,6 +448,8 @@ class Session:
             "assets_cached": len(self.assets),
             "timeframes": self.timeframes,
             "timeframes_source": self.timeframes_source,
+            "endpoint_region": self.endpoint_region,
+            "handshake": self.handshake_probes,
             "streams": [k for k, t in self.subscription_tasks.items() if not t.done()],
         }
 

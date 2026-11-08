@@ -40,7 +40,8 @@ const EXPIRY_LABELS = {
 // Requested assets. The numeric ids come from an unofficial community project
 // and are only trusted after a match against the live instrument list.
 const REQUESTED_ASSETS = [
-  { key: 'smarty', label_en: 'Smarty', label_ar: 'Smarty', legacy_id: '240', match: [/^smarty$/i, /smarty/i] },
+  // The live list spells Smarty as the symbol SMRTY; accept both spellings.
+  { key: 'smarty', label_en: 'Smarty', label_ar: 'Smarty', legacy_id: '240', match: [/^smarty$/i, /smarty/i, /^smrty\b/i, /\bsmrty\b/i] },
   { key: 'cricket-index', label_en: 'Cricket Index', label_ar: 'Cricket Index', legacy_id: '276', match: [/cricket/i] },
   { key: 'football-index', label_en: 'Football Index', label_ar: 'Football Index', legacy_id: '278', match: [/football/i] },
   { key: 'ai-index', label_en: 'AI Index', label_ar: 'AI Index', legacy_id: '285', match: [/^ai[\s_-]*index/i] },
@@ -132,6 +133,7 @@ function describeAccountAssets(instruments) {
       label_ar: instrument.name,
       available: active,
       requested_id: request ? request.legacy_id : null,
+      id_matches_requested: Boolean(request && String(instrument.id) === String(request.legacy_id)),
       id: String(instrument.id),
       symbol: instrument.symbol || null,
       name: instrument.name,
@@ -181,6 +183,7 @@ function describeAssets(instruments) {
       payout: resolved ? resolved.instrument.payout : null,
       timeframes: resolved ? resolved.instrument.timeframes : [],
       resolved_by: resolved ? resolved.resolved_by : null,
+      id_matches_requested: Boolean(resolved && String(resolved.instrument.id) === String(request.legacy_id)),
     };
   });
 }
