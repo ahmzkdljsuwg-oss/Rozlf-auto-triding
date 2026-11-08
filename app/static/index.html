@@ -83,21 +83,60 @@
       </div>
 
       <article class="card connect-card connect-card-new">
+        <div class="connect-tabs" role="tablist">
+          <button type="button" class="connect-tab active" data-connect-tab="safari" data-i18n="connect.tabSafari">ربط عبر Safari</button>
+          <button type="button" class="connect-tab" data-connect-tab="telegram" data-i18n="connect.tabTelegram">ربط عبر Telegram</button>
+        </div>
+
         <div class="connect-grid">
-          <div class="telegram-connect-panel">
-            <div class="telegram-icon">✈</div>
-            <h3>اربط حسابك من Telegram</h3>
-            <p>اضغط زر الربط داخل بوت ROZLF. سنرسل لك صفحة آمنة لإدخال Session Token؛ لا ترسل التوكن كرسالة للبوت.</p>
-            <a class="btn btn-primary telegram-cta" id="telegram-connect-link" href="https://t.me/" target="_blank" rel="noopener">فتح بوت ROZLF</a>
-            <small class="hint">رابط الربط صالح لخمس دقائق ويُستخدم مرة واحدة. الجلسة تحفظ مشفّرة على الخادم.</small>
+          <div class="connect-panel" data-connect-panel="safari">
+            <ol class="connect-steps">
+              <li>
+                <h4 data-i18n="safari.step1">١ · سجّل الدخول إلى ExpertOption بنفسك</h4>
+                <p data-i18n="safari.step1Body">افتح الموقع الرسمي من متصفحك وسجّل الدخول بحسابك التجريبي. ROZLF لا يطلب كلمة المرور ولا يقرأ ملفات تعريف ارتباط متصفحك.</p>
+                <a class="btn btn-ghost" id="safari-open" href="https://m.expertoption.com" target="_blank" rel="noopener" data-i18n="safari.open">فتح m.expertoption.com</a>
+              </li>
+              <li>
+                <h4 data-i18n="safari.step2">٢ · أنشئ رمز ربط لمرة واحدة</h4>
+                <div class="pair-row">
+                  <button type="button" class="btn btn-primary" id="pair-create" data-i18n="safari.create">إنشاء رمز الربط</button>
+                  <output class="pair-code" id="pair-code">—</output>
+                  <button type="button" class="btn btn-ghost" id="pair-copy" hidden data-i18n="safari.copy">نسخ</button>
+                </div>
+                <small class="hint" id="pair-note"></small>
+              </li>
+              <li>
+                <h4 data-i18n="safari.step3">٣ · شغّل الموصّل المحلي على جهازك</h4>
+                <p data-i18n="safari.step3Body">يفتح الموصّل نافذة متصفح مستقلة، تسجّل الدخول فيها، ثم يشفّر رمز الجلسة على جهازك بهذا الرمز ويرسله مشفّراً.</p>
+                <code class="connector-cmd" id="pair-command" dir="ltr">python rozlf_connect.py</code>
+                <div class="pair-actions">
+                  <button type="button" class="btn btn-ghost" id="pair-copy-cmd" data-i18n="safari.copyCmd">نسخ الأمر</button>
+                  <a class="btn btn-ghost" id="connector-download" href="/rozlf_connect.py" data-i18n="safari.download">تحميل rozlf_connect.py</a>
+                </div>
+              </li>
+            </ol>
+            <p class="form-error" id="pair-status"></p>
+            <p class="ios-note hidden" id="safari-ios-note" data-i18n="safari.iosNote">على iPhone/iPad لا يمكن لأي موقع قراءة جلسة موقع آخر. أنشئ الرمز من هنا، ثم شغّل الموصّل على حاسوب (Windows/Mac/Linux) وسجّل الدخول فيه — الموصّل هو من يرسل الجلسة، لا Safari.</p>
+            <div class="method-notes" id="connect-methods"></div>
           </div>
+
+          <div class="connect-panel hidden" data-connect-panel="telegram">
+            <div class="telegram-connect-panel">
+              <div class="telegram-icon">✈</div>
+              <h3 data-i18n="connect.telegramTitle">اربط حسابك من Telegram</h3>
+              <p data-i18n="connect.telegramBody">اضغط زر الربط داخل بوت ROZLF. سنرسل لك صفحة آمنة؛ لا ترسل التوكن كرسالة للبوت.</p>
+              <a class="btn btn-primary telegram-cta" id="telegram-connect-link" href="https://t.me/" target="_blank" rel="noopener" data-i18n="connect.telegramOpen">فتح بوت ROZLF</a>
+              <small class="hint" data-i18n="connect.telegramHint">رابط الربط صالح لخمس دقائق ويُستخدم مرة واحدة. الجلسة تحفظ مشفّرة على الخادم.</small>
+            </div>
+          </div>
+
           <div class="connect-status">
-            <div class="card-head"><h3>حالة الاتصال</h3><small id="status-time"></small></div>
-            <div class="status-row"><span class="dot" id="s-account-dot"></span><span class="lbl">الحساب</span><span class="val" id="s-account">—</span></div>
-            <div class="status-row"><span class="dot" id="s-session-dot"></span><span class="lbl">الجلسة</span><span class="val" id="s-session">—</span></div>
-            <div class="status-row"><span class="dot" id="s-bridge-dot"></span><span class="lbl">خدمة القراءة</span><span class="val" id="s-bridge">—</span></div>
-            <div class="status-row"><span class="dot" id="s-data-dot"></span><span class="lbl">بيانات السوق</span><span class="val" id="s-data">—</span></div>
-            <div class="status-row"><span class="dot ok"></span><span class="lbl">وضع التشغيل</span><span class="val">تحليل فقط — التنفيذ معطّل</span></div>
+            <div class="card-head"><h3 data-i18n="connect.status">حالة الاتصال</h3><small id="status-time"></small></div>
+            <div class="status-row"><span class="dot" id="s-account-dot"></span><span class="lbl" data-i18n="connect.account">الحساب</span><span class="val" id="s-account">—</span></div>
+            <div class="status-row"><span class="dot" id="s-session-dot"></span><span class="lbl" data-i18n="connect.session">الجلسة</span><span class="val" id="s-session">—</span></div>
+            <div class="status-row"><span class="dot" id="s-bridge-dot"></span><span class="lbl" data-i18n="connect.bridge">خدمة القراءة</span><span class="val" id="s-bridge">—</span></div>
+            <div class="status-row"><span class="dot" id="s-data-dot"></span><span class="lbl" data-i18n="connect.data">بيانات السوق</span><span class="val" id="s-data">—</span></div>
+            <div class="status-row"><span class="dot ok"></span><span class="lbl" data-i18n="connect.mode">وضع التشغيل</span><span class="val" data-i18n="connect.modeValue">تحليل فقط — التنفيذ معطّل</span></div>
             <p class="form-error" id="connect-detail"></p>
           </div>
         </div>

@@ -1029,3 +1029,28 @@ main.shell { padding-top: 24px; padding-bottom: 112px; }
   .section { margin-top: 23px; }
   .card { border-radius: 16px; }
 }
+
+/* ---------- Connect via Safari / local connector ---------- */
+.connect-tabs { display: flex; gap: 6px; margin-bottom: 16px; background: #f1f6fb; padding: 5px; border-radius: 12px; width: fit-content; }
+.connect-tab { border: 0; background: transparent; color: #63748a; font-weight: 600; font-size: 0.85rem; padding: 9px 16px; border-radius: 9px; cursor: pointer; font-family: inherit; transition: background .2s, color .2s; }
+.connect-tab.active { background: #fff; color: #12487a; box-shadow: 0 2px 8px rgba(20, 60, 100, .12); }
+.connect-panel { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.connect-panel.hidden { display: none; }
+.connect-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 14px; }
+.connect-steps li { background: #fbfcfd; border: 1px solid #edf1f5; border-radius: 14px; padding: 14px 16px; }
+.connect-steps h4 { margin: 0 0 6px; font-size: 0.92rem; color: #21415f; }
+.connect-steps p { margin: 0 0 10px; color: #718196; font-size: 0.86rem; line-height: 1.75; }
+.pair-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.pair-code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1.1rem; font-weight: 700; letter-spacing: .14em; color: #12487a; background: #eef6ff; border: 1px dashed #b9d7f0; padding: 8px 14px; border-radius: 10px; min-width: 120px; text-align: center; }
+.connector-cmd { display: block; direction: ltr; text-align: left; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.76rem; background: #0f2338; color: #d6e7f6; padding: 12px 14px; border-radius: 10px; overflow-x: auto; white-space: nowrap; margin-bottom: 10px; }
+.pair-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.method-notes { display: flex; flex-direction: column; gap: 7px; margin-top: 14px; }
+.method-note { font-size: 0.76rem; color: #7c8b9c; display: flex; gap: 7px; line-height: 1.65; }
+.method-note b { color: #4a6076; font-weight: 600; white-space: nowrap; }
+.method-note.no { color: #a08050; }
+.ios-note { background: #fff8e6; border: 1px solid #f0dcae; color: #8a6b1f; font-size: 0.78rem; line-height: 1.85; padding: 10px 12px; border-radius: 10px; margin: 0 0 4px; }
+@media (max-width: 720px) {
+  .connect-tabs { width: 100%; }
+  .connect-tab { flex: 1; }
+  .pair-code { font-size: 1rem; letter-spacing: .1em; }
+}

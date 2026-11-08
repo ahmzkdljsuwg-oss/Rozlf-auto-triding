@@ -845,6 +845,157 @@
     });
   }
 
+  /* ---------------- connect via Safari / local connector ---------------- */
+  const pairState = { code: '', appUrl: '', expiresAt: 0, poll: null };
+
+  function connectorCommand() {
+    const appUrl = pairState.appUrl || window.location.origin;
+    return pairState.code
+      ? `python rozlf_connect.py --app ${appUrl} --code ${pairState.code}`
+      : `python rozlf_connect.py --app ${appUrl}`;
+  }
+
+  function setPairStatus(message, kind) {
+    const el = $('pair-status');
+    if (!el) return;
+    el.textContent = message || '';
+    el.className = 'form-error' + (kind === 'ok' ? ' ok' : '');
+  }
+
+  async function copyToClipboard(text, button) {
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      const area = document.createElement('textarea');
+      area.value = text;
+      area.setAttribute('readonly', '');
+      area.style.position = 'fixed';
+      area.style.opacity = '0';
+      document.body.appendChild(area);
+      area.select();
+      try { document.execCommand('copy'); } catch { /* clipboard unavailable */ }
+      document.body.removeChild(area);
+    }
+    if (button) {
+      const original = button.textContent;
+      button.textContent = ar() ? 'تم النسخ ✓' : 'Copied ✓';
+      setTimeout(() => { button.textContent = original; }, 1600);
+    }
+  }
+
+  function stopPairPolling() {
+    if (pairState.poll) clearInterval(pairState.poll);
+    pairState.poll = null;
+  }
+
+  function watchPairing() {
+    stopPairPolling();
+    pairState.poll = setInterval(async () => {
+      if (Date.now() > pairState.expiresAt) {
+        stopPairPolling();
+        setPairStatus(ar() ? 'انتهت صلاحية الرمز. أنشئ رمزاً جديداً.' : 'Code expired. Create a new one.');
+        return;
+      }
+      const session = await refreshSession();
+      if (session && session.verified) {
+        stopPairPolling();
+        setPairStatus(ar() ? '✅ تم الربط وتحقق الاتصال. قراءة وتحليل فقط.' : '✅ Linked and verified. Read-only.', 'ok');
+      } else if (session && session.connection_state === 'configured_unverified' && session.last_error) {
+        setPairStatus((ar() ? 'وصلت الجلسة لكن التحقق لم ينجح: ' : 'Session received but verification failed: ')
+          + String(session.last_error).slice(0, 180));
+      }
+    }, 5000);
+  }
+
+  async function createPairing() {
+    const button = $('pair-create');
+    if (button) button.disabled = true;
+    setPairStatus(ar() ? 'جارٍ إنشاء الرمز…' : 'Creating code…');
+    try {
+      const data = await api('/api/connect/pair', { method: 'POST', body: {} });
+      pairState.code = String(data.code || '');
+      const onLoopback = /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i.test(window.location.host);
+      pairState.appUrl = onLoopback ? window.location.origin : String(data.app_url || window.location.origin);
+      pairState.expiresAt = new Date(data.expires_at).getTime();
+      setText($('pair-code'), pairState.code);
+      const copyButton = $('pair-copy');
+      if (copyButton) copyButton.hidden = false;
+      setText($('pair-note'), `${data.note_ar || ''} ${ar() ? 'ينتهي' : 'expires'} ${clock(data.expires_at)}`);
+      setText($('pair-command'), connectorCommand());
+      setPairStatus(ar() ? 'الرمز جاهز. شغّل الموصّل على جهازك واستخدم هذا الرمز.' : 'Code ready. Run the connector and use this code.');
+      watchPairing();
+    } catch (err) {
+      setPairStatus(err.message || (ar() ? 'تعذّر إنشاء الرمز.' : 'Could not create the code.'));
+    } finally {
+      if (button) button.disabled = false;
+    }
+  }
+
+  function renderConnectMethods(methods) {
+    const host = $('connect-methods');
+    if (!host || !methods) return;
+    const titles = {
+      official_api: [ar() ? 'واجهة رسمية' : 'Official API', false],
+      safari_direct: [ar() ? 'Safari مباشرة' : 'Safari direct', false],
+      local_connector: [ar() ? 'الموصل المحلي' : 'Local connector', true],
+      manual_token: [ar() ? 'إدخال يدوي' : 'Manual token', true],
+    };
+    host.innerHTML = '';
+    Object.keys(methods).forEach((key) => {
+      const method = methods[key] || {};
+      const [label, usable] = titles[key] || [key, Boolean(method.available)];
+      const row = document.createElement('div');
+      row.className = 'method-note' + (usable ? '' : ' no');
+      const strong = document.createElement('b');
+      strong.textContent = `${usable ? '✓' : '✕'} ${label}`;
+      const span = document.createElement('span');
+      span.textContent = (ar() ? method.reason_ar : method.reason_en) || '';
+      row.appendChild(strong);
+      row.appendChild(span);
+      host.appendChild(row);
+    });
+  }
+
+  async function initConnectPanel() {
+    const tabs = document.querySelectorAll('[data-connect-tab]');
+    const panels = document.querySelectorAll('[data-connect-panel]');
+    tabs.forEach((tab) => {
+      tab.addEventListener('click', () => {
+        const name = tab.getAttribute('data-connect-tab');
+        tabs.forEach((other) => other.classList.toggle('active', other === tab));
+        panels.forEach((panel) => {
+          panel.classList.toggle('hidden', panel.getAttribute('data-connect-panel') !== name);
+        });
+      });
+    });
+
+    if (/iPad|iPhone|iPod/.test(navigator.userAgent)
+      || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)) {
+      const note = $('safari-ios-note');
+      if (note) note.classList.remove('hidden');
+    }
+
+    setText($('pair-command'), connectorCommand());
+    setText($('pair-code'), '—');
+    const create = $('pair-create');
+    if (create) create.addEventListener('click', createPairing);
+    const copyCode = $('pair-copy');
+    if (copyCode) copyCode.addEventListener('click', () => copyToClipboard(pairState.code, copyCode));
+    const copyCmd = $('pair-copy-cmd');
+    if (copyCmd) copyCmd.addEventListener('click', () => copyToClipboard(connectorCommand(), copyCmd));
+
+    try {
+      const data = await api('/api/connect/methods');
+      renderConnectMethods(data.methods);
+      if (data.encryption_ready === false) {
+        setPairStatus(ar()
+          ? 'APP_SECRET_KEY غير مضبوط على الخادم؛ لن يُحفظ أي رمز جلسة حتى يُضاف.'
+          : 'APP_SECRET_KEY is not set on the server; no session will be stored until it is.');
+      }
+    } catch { /* the panel still works without the capability list */ }
+  }
+
   function reveal() {
     const items = document.querySelectorAll('.reveal');
     if (!('IntersectionObserver' in window)) {
@@ -878,6 +1029,7 @@
 
   function init() {
     bind();
+    initConnectPanel();
     reveal();
     renderExpiries();
     renderAssets();

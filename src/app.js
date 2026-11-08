@@ -243,6 +243,113 @@ function createApp({ engine }) {
     }
   });
 
+  // ---- Connect via Safari / local consent connector -------------------------
+  // No password and no cookie-store extraction: the user signs in to
+  // m.expertoption.com themselves, and only the token already present in that
+  // browser profile is encrypted on their machine with a one-time code.
+  const pairAttempts = new Map();
+  function pairRateLimited(ip) {
+    const now = Date.now();
+    const list = (pairAttempts.get(ip) || []).filter((t) => now - t < 60000);
+    list.push(now);
+    pairAttempts.set(ip, list);
+    return list.length > 12;
+  }
+
+  app.get('/api/connect/methods', (req, res) => {
+    const { connectionMethods } = require('./connect-pairing');
+    res.json({
+      methods: connectionMethods(),
+      read_only: true,
+      execution_enabled: false,
+      encryption_ready: encryptionReady(),
+      secure_context: req.secure || String(req.headers['x-forwarded-proto'] || '').includes('https'),
+    });
+  });
+
+  app.post('/api/connect/pair', async (req, res) => {
+    if (!encryptionReady()) {
+      return fail(res, 503, 'APP_SECRET_KEY غير مضبوط؛ لا يمكن حفظ الجلسة بشكل مشفر. أضف المتغير في Render أولاً.');
+    }
+    const ip = String(req.headers['x-forwarded-for'] || req.ip || '').split(',')[0].trim();
+    if (pairRateLimited(ip)) return fail(res, 429, 'طلبات كثيرة. انتظر دقيقة ثم أعد المحاولة.');
+    const { issuePairing } = require('./connect-pairing');
+    const pairing = await issuePairing(engine.db, { ip });
+    res.json({
+      ...pairing,
+      app_url: config.PUBLIC_APP_URL || `${req.protocol}://${req.get('host')}`,
+      connector: 'rozlf_connect.py',
+      note_ar: 'الرمز صالح ١٠ دقائق ويُستهلك مرة واحدة. لا تُرسله إلى Telegram ولا إلى أي شخص.',
+    });
+  });
+
+  app.post('/api/connect/session', async (req, res) => {
+    const body = req.body || {};
+    const code = String(body.code || '').trim();
+    if (!code || code.length > 16) return fail(res, 422, 'رمز الربط مطلوب.');
+    if (!encryptionReady()) return fail(res, 503, 'APP_SECRET_KEY غير مضبوط؛ لا يمكن حفظ الجلسة.');
+
+    const pairing = require('./connect-pairing');
+    const consumed = await pairing.consumePairing(engine.db, code);
+    if (!consumed.ok) {
+      const messages = {
+        invalid_code: 'صيغة الرمز غير صحيحة.',
+        unknown_or_used: 'الرمز غير موجود أو استُخدم من قبل. أنشئ رمزاً جديداً.',
+        expired: 'انتهت صلاحية الرمز. أنشئ رمزاً جديداً.',
+        too_many_attempts: 'تم إغلاق هذا الرمز بعد محاولات فاشلة متعددة. أنشئ رمزاً جديداً.',
+      };
+      return fail(res, 410, messages[consumed.reason] || 'تعذر التحقق من الرمز.');
+    }
+
+    let token = '';
+    try {
+      token = normalizeExpertOptionToken(pairing.decryptPayload(code, body.payload));
+    } catch {
+      await pairing.markAttempt(engine.db, consumed.key, consumed.attempts);
+      return fail(res, 422, 'تعذّر فك تشفير بيانات الجلسة. تأكد من صحة الرمز وأن الموصّل هو الذي أنشأ البيانات.');
+    }
+    if (!isText(token, 1, 4096)) {
+      await pairing.markAttempt(engine.db, consumed.key, consumed.attempts);
+      return fail(res, 422, 'لم يصل رمز جلسة صالح من الموصّل.');
+    }
+    await pairing.burnPairing(engine.db, consumed.key);
+
+    const accountType = body.account_type === 'real' ? 'real' : 'demo';
+    if (accountType === 'real' && !config.EXPERTOPTION_ALLOW_REAL_READ) {
+      return fail(res, 403, 'قراءة الحساب الحقيقي معطّلة. الربط متاح لحساب Demo فقط.');
+    }
+    const login = isText(body.login, 2, 128)
+      ? String(body.login)
+      : `safari-${crypto.createHash('sha256').update(token).digest('hex').slice(0, 8)}`;
+
+    try {
+      const status = await engine.attachAccount({
+        platform: 'expertoption', accountType, login, sessionToken: token,
+      });
+      const verification = engine.expertOptionSession
+        ? engine.expertOptionSession.status()
+        : { verified: false, last_error: 'ExpertOption session was not initialized' };
+      if (engine.telegram && engine.telegram.tokenConfigured) {
+        engine.telegram.sendMessage(
+          verification.verified
+            ? '🔗 تم ربط جلسة ExpertOption عبر الموصّل المحلي وتحقق الاتصال. قراءة وتحليل فقط.'
+            : `⚠️ وصل رمز الجلسة عبر الموصّل لكن التحقق فشل: ${String(verification.last_error || 'سبب غير معروف').slice(0, 160)}`,
+        ).catch(() => {});
+      }
+      await engine.db.addLog('info', 'expertoption', `Session received from local connector (${accountType}), verified=${verification.verified}`);
+      return res.json({ ...status, session: verification });
+    } catch (err) {
+      const message = String(err.message || 'Connection failed').slice(0, 300);
+      await engine.db.addLog('warn', 'expertoption', `Connector session failed: ${message}`);
+      return fail(res, 502, message);
+    }
+  });
+
+  app.get('/rozlf_connect.py', (req, res) => {
+    if (!ownerAuthorized(req)) return fail(res, 401, 'افتح الموقع من حساب المالك أولاً.');
+    res.download(path.join(__dirname, '..', 'connector', 'rozlf_connect.py'), 'rozlf_connect.py');
+  });
+
   app.get('/api/expertoption/session', async (req, res) => {
     if (!engine.expertOptionSession) return fail(res, 409, 'No ExpertOption session is attached');
     res.json(engine.expertOptionSession.status());
