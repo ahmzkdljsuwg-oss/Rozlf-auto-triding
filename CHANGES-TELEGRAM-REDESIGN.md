@@ -25,3 +25,10 @@
 - Python suite: 44 passed (6 existing deprecation/runtime warnings).
 - Full `npm test` could not be completed in this environment because npm dependency installation did not finish; Express and better-sqlite3 were unavailable here.
 - No live Telegram account, valid ExpertOption token, or Render deployment was available for end-to-end verification. Live connection still needs to be tested after deployment.
+
+## ExpertOption first-connection timeout hotfix
+
+- Raised the Node-to-bridge request timeout to at least 70 seconds, above the bundled bridge's 60-second HTTP wait for the initial profile request. This also overrides stale Render values such as `EXPERTOPTION_API_TIMEOUT_MS=10000`.
+- Raised the first ExpertOption WebSocket connection timeout default to 40 seconds.
+- Removed the duplicate immediate session verification in Telegram link completion. `attachAccount()` already verifies once; the route now reads that result rather than opening a second profile request.
+- Session linking remains read-only. A timeout is not treated as successful verification.

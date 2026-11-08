@@ -109,8 +109,11 @@ function createApp({ engine }) {
         login: `telegram-${String(record.chat_id).slice(-8)}`,
         sessionToken,
       });
+      // attachAccount -> _wireExpertOptionAccount already performs one verification.
+      // Do not immediately open a second WebSocket/profile request: on a cold bridge
+      // that duplicate call can exceed the web request budget and report a false timeout.
       const verification = engine.expertOptionSession
-        ? await engine.expertOptionSession.verify()
+        ? engine.expertOptionSession.status()
         : { verified: false, last_error: 'ExpertOption session was not initialized' };
       if (!verification.verified) {
         const message = String(verification.last_error || verification.reason_ar || 'تعذر التحقق من الجلسة').slice(0, 240);

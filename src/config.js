@@ -74,7 +74,9 @@ const config = {
   EXPERTOPTION_API_BASE_URL: env('EXPERTOPTION_API_BASE_URL', ''),
   EXPERTOPTION_API_KEY: env('EXPERTOPTION_API_KEY', ''),
   EXPERTOPTION_API_ACCOUNT: env('EXPERTOPTION_API_ACCOUNT', ''),
-  EXPERTOPTION_API_TIMEOUT_MS: Math.max(1000, num('EXPERTOPTION_API_TIMEOUT_MS', 10000)),
+  // The bundled bridge may wait up to 60s for ExpertOption's first WebSocket profile reply.
+  // Keep the Node-side abort above the bridge's HTTP wait, even if an old Render env value is 10000.
+  EXPERTOPTION_API_TIMEOUT_MS: Math.max(70000, num('EXPERTOPTION_API_TIMEOUT_MS', 70000)),
   EXPERTOPTION_API_MIN_INTERVAL_MS: Math.max(0, num('EXPERTOPTION_API_MIN_INTERVAL_MS', 250)),
   EXPERTOPTION_API_RETRIES: Math.max(0, Math.min(5, num('EXPERTOPTION_API_RETRIES', 2))),
   EXPERTOPTION_CANDLE_CACHE_MS: Math.max(0, num('EXPERTOPTION_CANDLE_CACHE_MS', 4000)),

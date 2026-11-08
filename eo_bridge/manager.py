@@ -39,7 +39,8 @@ CONNECT_RETRIES = int(os.getenv("EO_BRIDGE_CONNECT_RETRIES", "3"))
 CONNECT_BACKOFF = float(os.getenv("EO_BRIDGE_CONNECT_BACKOFF", "1.0"))
 QUOTE_MAX_AGE_SECONDS = float(os.getenv("EO_BRIDGE_QUOTE_MAX_AGE_SECONDS", "20"))
 CANDLE_TIMEOUT = float(os.getenv("EO_BRIDGE_CANDLE_TIMEOUT", "20"))
-CONNECT_TIMEOUT = float(os.getenv("EO_BRIDGE_CONNECT_TIMEOUT", "25"))
+# Initial ExpertOption WebSocket setup fetches profile and assets; allow a slower first handshake.
+CONNECT_TIMEOUT = float(os.getenv("EO_BRIDGE_CONNECT_TIMEOUT", "40"))
 MAX_SESSIONS = int(os.getenv("EO_BRIDGE_MAX_SESSIONS", "4"))
 SERVER_REGION = os.getenv("EO_BRIDGE_REGION", "EUROPE").upper()
 # Chart timeframes ExpertOption publishes. Used when the session does not answer
