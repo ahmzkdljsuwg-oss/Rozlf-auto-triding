@@ -1,471 +1,309 @@
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <meta name="theme-color" content="#f5f9fc" />
-  <title>ROZLF AUTO TRADER</title>
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>ROZLF AUTO TRADER — تحليل ذكي للأسواق</title>
+  <meta name="description" content="ROZLF AUTO TRADER — منصة تحليل ذكي لأسواق ExpertOption: شموع حقيقية، مؤشرات، هيكل سوق، وإشارات BUY / SELL / NO TRADE بدون أي تنفيذ صفقات." />
+  <meta name="theme-color" content="#06060f" />
   <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="/favicon.svg" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/css/styles.css?v=8" />
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/css/styles.css?v=10" />
 </head>
 <body>
-<div class="app-shell">
-
-  <!-- ================= ONBOARDING ================= -->
-  <div id="onboarding" class="onboarding">
-    <div class="onboarding-orb orb-a"></div>
-    <div class="onboarding-orb orb-b"></div>
-
-    <header class="brand-bar">
-      <div class="brand">
+  <header class="topbar">
+    <div class="shell topbar-inner">
+      <a class="brand" href="/" aria-label="ROZLF AUTO TRADER">
         <span class="brand-mark" aria-hidden="true">
-          <svg viewBox="0 0 24 24" fill="none"><path d="M4 15.5 9 9l4 4.5L20 5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 20h16" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+          <svg viewBox="0 0 24 24" fill="none" stroke="#f5b22e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 15.5 8.5 10l3.6 3.2L20 5" />
+            <path d="M15.5 5H20v4.5" />
+            <path d="M4 20h16" opacity=".55" />
+          </svg>
         </span>
-        <span class="brand-word">ROZLF<span>AUTO TRADER</span></span>
-      </div>
-      <button id="lang-toggle" class="chip-btn" type="button">
-        <span class="lang-flag">EN</span>
+        <span class="brand-text">
+          <b>ROZLF</b>
+          <span>AUTO TRADER</span>
+        </span>
+      </a>
+
+      <div class="topbar-gap"></div>
+
+      <div class="live-pill" id="conn-pill"><i></i><span id="conn-pill-text" data-i18n="pill.checking">جارٍ التحقق</span></div>
+      <button class="icon-btn" id="lang-toggle" type="button" aria-label="Language">EN</button>
+      <button class="icon-btn" id="access-btn" type="button" aria-label="Access key" title="مفتاح الوصول">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <circle cx="8" cy="12" r="4" /><path d="M12 12h9M17 12v3M20 12v2" />
+        </svg>
       </button>
-    </header>
-
-    <div class="step-track" aria-hidden="true">
-      <span class="step-dot active" data-step="1"></span>
-      <span class="step-dot" data-step="2"></span>
-      <span class="step-dot" data-step="3"></span>
     </div>
+  </header>
 
-    <!-- Step 1: platform -->
-    <section id="screen-platform" class="screen active">
-      <div class="screen-head">
-        <p class="eyebrow" data-i18n="platform.eyebrow">الخطوة 1 من 3</p>
-        <h1 data-i18n="platform.title">اختر منصة التداول</h1>
-        <p class="sub" data-i18n="platform.sub">ابدأ بحساب تجريبي. التنفيذ الحقيقي مقفل حتى اعتماد الاختبارات.</p>
-      </div>
-      <div class="choice-grid">
-        <button class="choice-card" data-platform="expertoption" type="button">
-          <span class="choice-icon icon-eo">EO</span>
-          <span class="choice-body">
-            <strong>ExpertOption</strong>
-            <small data-i18n="platform.eo">تحليل وتنبيهات فقط — لا يوجد API تداول رسمي</small>
-          </span>
-          <span class="choice-arrow">→</span>
-        </button>
-        <button class="choice-card" data-platform="mt5" type="button">
-          <span class="choice-icon icon-mt5">5</span>
-          <span class="choice-body">
-            <strong>MetaTrader 5</strong>
-            <small data-i18n="platform.mt5">تنفيذ تجريبي محاكى — جسر حقيقي عبر Windows VPS</small>
-          </span>
-          <span class="choice-arrow">→</span>
-        </button>
-      </div>
-      <p class="fine-print" data-i18n="platform.fine">لا تُضمن الأرباح. التداول ينطوي على مخاطر.</p>
-    </section>
+  <main class="shell">
+    <!-- ============ HERO ============ -->
+    <section class="hero reveal">
+      <span class="eyebrow" data-i18n="hero.eyebrow">تحليل ذكي للأسواق</span>
+      <h1><span data-i18n="hero.title">حلّل أي أصل</span> <em data-i18n="hero.titleAccent">في ثوانٍ</em></h1>
+      <p class="hero-sub" data-i18n="hero.sub">
+        شموع حقيقية من جلسة حسابك في ExpertOption، مؤشرات فنية، هيكل سوق، وقراءة ذكية بالسعر الفعلي — دون أي تنفيذ صفقات.
+      </p>
 
-    <!-- Step 2: account type -->
-    <section id="screen-account" class="screen">
-      <div class="screen-head">
-        <button class="back-btn" data-back="platform" type="button">↩</button>
-        <p class="eyebrow" data-i18n="account.eyebrow">الخطوة 2 من 3</p>
-        <h1 data-i18n="account.title">نوع الحساب</h1>
-        <p class="sub" id="selected-platform-label">—</p>
-      </div>
-      <div class="choice-grid account-grid">
-        <button class="choice-card account-card selected" data-account-type="demo" type="button">
-          <span class="account-badge demo" data-i18n="account.demoBadge">مفعّل</span>
-          <strong data-i18n="account.demo">حساب تجريبي</strong>
-          <small data-i18n="account.demoSub">تنفيذ محاكى بأسعار سوق حقيقية</small>
-          <span class="balance-hint" data-i18n="account.demoBalance">الرصيد من الحساب الحقيقي</span>
-        </button>
-        <button class="choice-card account-card locked" data-account-type="real" type="button" disabled>
-          <span class="account-badge real" data-i18n="account.realBadge">مقفل</span>
-          <strong data-i18n="account.real">حساب حقيقي</strong>
-          <small data-i18n="account.realSub">يفتح بعد اكتمال الاختبارات وموافقتك الصريحة</small>
-          <span class="lock-hint">🔒</span>
-        </button>
-      </div>
-      <button class="primary-btn" id="to-login" type="button" data-i18n="common.continue">متابعة</button>
-    </section>
-
-    <!-- Step 3: login -->
-    <section id="screen-login" class="screen">
-      <div class="screen-head">
-        <button class="back-btn" data-back="account" type="button">↩</button>
-        <p class="eyebrow" data-i18n="login.eyebrow">الخطوة 3 من 3</p>
-        <h1 data-i18n="login.title">تسجيل الدخول</h1>
-        <p class="sub" id="login-subtitle">—</p>
-      </div>
-
-      <div class="notice" id="platform-notice"></div>
-
-      <form id="login-form" class="login-form" autocomplete="off">
-        <label class="field" id="server-field">
-          <span data-i18n="login.server">اسم الخادم</span>
-          <input name="server" type="text" placeholder="MetaQuotes-Demo" autocomplete="off" />
+      <form class="search-card" id="search-form" autocomplete="off">
+        <label class="search-input-wrap" for="asset-search">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <circle cx="11" cy="11" r="7" /><path d="m16.5 16.5 4 4" />
+          </svg>
+          <input id="asset-search" type="search" data-i18n-attr="placeholder:search.placeholder" placeholder="ابحث عن أصل: Smarty، EUR/USD OTC…" />
         </label>
-        <label class="field">
-          <span data-i18n="login.login">رقم الحساب أو البريد</span>
-          <input name="login" type="text" placeholder="12345678" autocomplete="username" required minlength="2" />
-        </label>
-        <label class="field">
-          <span id="credential-label" data-i18n="login.password">كلمة المرور</span>
-          <div class="password-wrap">
-            <input id="credential-input" name="password" type="password" placeholder="••••••••" autocomplete="current-password" required />
-            <button type="button" class="reveal" data-i18n="login.show">إظهار</button>
-          </div>
-        </label>
-        <p class="security-note hidden" id="token-note" data-i18n="login.tokenNote">يُحفظ التوكن مشفّراً ولا يظهر في السجلات. تُقرأ الشموع والسعر الحيّ من جلسة حسابك عبر خدمة ROZLF bridge للتحليل فقط، دون أي تنفيذ صفقات.</p>
-        <p class="security-note hidden" id="token-help">انسخ التوكن من app.expertoption.com بعد تسجيل الدخول (أدوات المتصفح ← التخزين ← قيمة الجلسة) والصقه هنا. الجلسة القديمة تنتهي عند تسجيل الخروج.</p>
-        <p class="security-note" data-i18n="login.security">تُشفّر البيانات محلياً ولا تُرسل إلى Gemini أو Telegram أو الواجهة.</p>
-        <div class="form-actions">
-          <button type="button" id="test-connection" class="ghost-btn" data-i18n="login.test">اختبار الاتصال</button>
-          <button type="submit" class="primary-btn" id="login-submit" data-i18n="login.submit">تسجيل الدخول</button>
-        </div>
-        <p id="login-error" class="form-error"></p>
+        <button class="btn btn-primary" type="submit" id="analyze-btn" data-i18n="search.action">تحليل</button>
       </form>
+
+      <div class="chips" id="quick-assets"></div>
+
+      <div class="hero-meta">
+        <span><i class="dot" id="source-dot"></i><span id="data-source" data-i18n="meta.source">المصدر: —</span></span>
+        <span id="last-update" data-i18n="meta.updated">آخر تحديث: —</span>
+        <span class="badge blue" data-i18n="meta.readonly">قراءة وتحليل فقط</span>
+      </div>
     </section>
-  </div>
 
-  <!-- ================= DASHBOARD ================= -->
-  <div id="dashboard" class="dashboard hidden">
-    <header class="dash-top">
-      <div class="brand small">
-        <span class="brand-mark" aria-hidden="true">
-          <svg viewBox="0 0 24 24" fill="none"><path d="M4 15.5 9 9l4 4.5L20 5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 20h16" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
-        </span>
-        <span class="brand-word">ROZLF<span>AUTO TRADER</span></span>
-      </div>
-      <div class="dash-top-actions">
-        <span id="conn-pill" class="status-pill"><i></i><span data-i18n="dash.connecting">جارٍ الاتصال</span></span>
-        <button class="icon-btn" id="dash-lang" type="button" title="Language">EN</button>
-        <button class="icon-btn" id="logout-btn" type="button" title="Logout">⏻</button>
-      </div>
-    </header>
-
-    <main class="dash-main">
-      <div class="dash-heading">
-        <p class="eyebrow" data-i18n="dash.pageEyebrow">ROZLF AUTO TRADER</p>
-        <h1 data-i18n="dash.pageTitle">إعدادات الروبوت</h1>
+    <!-- ============ CONNECTION ============ -->
+    <section class="section reveal" id="connection">
+      <div class="section-head">
+        <div>
+          <h2 data-i18n="connect.title">جلسة ExpertOption</h2>
+          <p data-i18n="connect.sub">اربط جلستك مرة واحدة ليقرأ ROZLF شموع حسابك الحقيقية.</p>
+        </div>
       </div>
 
-      <!-- balance hero -->
-      <section class="hero-card">
-        <div class="hero-glow"></div>
-        <div class="hero-top">
-          <span class="hero-label" data-i18n="dash.balance">رصيد الحساب</span>
-          <span class="mode-chip" id="mode-chip">DEMO</span>
-        </div>
-        <div class="balance-row">
-          <span class="balance-value" id="balance-value">$0.00</span>
-          <span class="balance-cur" id="balance-cur">USD</span>
-        </div>
-        <div class="account-metrics">
-          <div><span data-i18n="dash.equity">الأسهم (Equity)</span><strong id="equity-value">—</strong></div>
-          <div><span data-i18n="dash.freeMargin">الهامش الحر</span><strong id="free-margin">—</strong></div>
-          <div><span data-i18n="dash.usedMargin">الهامش المستخدم</span><strong id="used-margin">—</strong></div>
-          <div><span data-i18n="dash.marginLevel">مستوى الهامش</span><strong id="margin-level">—</strong></div>
-        </div>
-        <div class="hero-stats">
-          <div><span data-i18n="dash.todayPnl">ربح/خسارة اليوم</span><strong id="today-pnl">$0.00</strong></div>
-          <div><span data-i18n="dash.openTrades">صفقات مفتوحة</span><strong id="open-count">0</strong></div>
-          <div><span data-i18n="dash.dailyTrades">صفقات اليوم</span><strong id="daily-count">0</strong></div>
-        </div>
-        <div class="hero-foot">
-          <span id="account-label">—</span>
-          <span id="sync-state">—</span>
-          <button class="text-btn light" id="sync-account" type="button" data-i18n="dash.syncNow">تحديث</button>
-          <span id="last-scan">—</span>
-        </div>
-      </section>
-
-      <!-- controls -->
-      <section class="control-card">
-        <div class="control-status">
-          <span class="live-dot" id="live-dot"></span>
+      <article class="card connect-card">
+        <div class="connect-grid">
           <div>
-            <strong id="bot-state-label" data-i18n="dash.stopped">البوت متوقف</strong>
-            <small id="engine-sub">—</small>
+            <div class="card-head">
+              <h3 data-i18n="connect.form">بيانات الجلسة</h3>
+              <small data-i18n="connect.demoOnly">Demo فقط</small>
+            </div>
+
+            <form id="connect-form" autocomplete="off">
+              <label class="field">
+                <span data-i18n="connect.login">بريد أو اسم الحساب</span>
+                <input id="account-login" class="ltr" type="text" inputmode="email" placeholder="you@example.com" autocomplete="username" spellcheck="false" />
+              </label>
+
+              <label class="field">
+                <span data-i18n="connect.token">Session Token</span>
+                <input id="session-token" class="ltr" type="password" placeholder="••••••••••••••••" autocomplete="off" spellcheck="false" />
+                <em class="hint" data-i18n="connect.tokenHint">
+                  يُحفظ التوكن مشفّراً على الخادم فقط، ولا يظهر في السجلات أو الواجهة. لا نطلب كلمة مرور حسابك إطلاقاً.
+                </em>
+              </label>
+
+              <div class="connect-actions">
+                <button class="btn btn-primary" type="submit" id="connect-btn" data-i18n="connect.submit">اختبار الاتصال وتسجيل الدخول</button>
+                <button class="btn btn-ghost" type="button" id="disconnect-btn" data-i18n="connect.disconnect">قطع الجلسة</button>
+              </div>
+
+              <p class="form-error" id="connect-msg" role="status" aria-live="polite"></p>
+            </form>
+
+            <details class="token-help" id="token-help">
+              <summary data-i18n="connect.helpSummary">من أين أحصل على Session Token؟</summary>
+              <p data-i18n="connect.helpBody">
+                سجّل الدخول إلى حسابك التجريبي في ExpertOption من متصفحك، ثم افتح أدوات المطوّر ← Application ← Local Storage،
+                وانسخ قيمة مفتاح الجلسة (session / token). تُستخدم هذه القيمة للقراءة والتحليل فقط.
+              </p>
+            </details>
+          </div>
+
+          <div class="connect-status">
+            <div class="card-head"><h3 data-i18n="connect.status">حالة الاتصال</h3><small id="status-time"></small></div>
+            <div class="status-row"><span class="dot" id="s-account-dot"></span><span class="lbl" data-i18n="connect.account">الحساب</span><span class="val" id="s-account">—</span></div>
+            <div class="status-row"><span class="dot" id="s-session-dot"></span><span class="lbl" data-i18n="connect.session">الجلسة</span><span class="val" id="s-session">—</span></div>
+            <div class="status-row"><span class="dot" id="s-bridge-dot"></span><span class="lbl" data-i18n="connect.bridge">خدمة القراءة</span><span class="val" id="s-bridge">—</span></div>
+            <div class="status-row"><span class="dot" id="s-data-dot"></span><span class="lbl" data-i18n="connect.data">بيانات السوق</span><span class="val" id="s-data">—</span></div>
+            <div class="status-row"><span class="dot ok"></span><span class="lbl" data-i18n="connect.mode">وضع التشغيل</span><span class="val" data-i18n="connect.modeValue">تحليل فقط — التنفيذ معطّل</span></div>
+            <p class="form-error" id="connect-detail"></p>
           </div>
         </div>
-        <div class="control-actions">
-          <button id="toggle-bot" class="primary-btn compact" type="button" data-i18n="dash.start">تشغيل التداول</button>
-          <button id="emergency-btn" class="danger-btn compact" type="button" data-i18n="dash.emergency">إيقاف طارئ</button>
+      </article>
+    </section>
+
+    <!-- ============ QUICK VIEW ============ -->
+    <div class="grid-2">
+      <article class="card reveal" id="quick-view">
+        <div class="card-head">
+          <h3 data-i18n="quick.title">أحدث قراءة</h3>
+          <small id="qv-when">—</small>
         </div>
-        <div class="speed-block">
-          <span class="speed-label" data-i18n="dash.speed">سرعة التداول</span>
-          <div class="speed-select" role="group" aria-label="Trading speed">
-            <button type="button" data-speed="slow">🐢 <span data-i18n="speed.slow">بطيء</span></button>
-            <button type="button" data-speed="medium">⚖️ <span data-i18n="speed.medium">متوسط</span></button>
-            <button type="button" data-speed="fast">⚡ <span data-i18n="speed.fast">سريع</span></button>
+        <div class="verdict-top">
+          <div class="asset-title">
+            <strong id="qv-asset">—</strong>
+            <small id="qv-meta" data-i18n="quick.empty">لم يتم تحليل أي أصل بعد</small>
           </div>
-          <small id="speed-note">—</small>
-        </div>
-      </section>
-
-      <!-- risk strip -->
-      <section class="risk-strip">
-        <div class="risk-item">
-          <span data-i18n="dash.riskPerTrade">مخاطرة/صفقة</span>
-          <strong id="risk-percent">0.5%</strong>
-        </div>
-        <div class="risk-item">
-          <span data-i18n="dash.dailyLimit">حد الخسارة اليومي</span>
-          <strong id="daily-limit">$0</strong>
-        </div>
-        <div class="risk-item">
-          <span data-i18n="dash.maxOpen">أقصى صفقات مفتوحة</span>
-          <strong id="max-open">3</strong>
-        </div>
-        <button class="text-btn" id="open-risk" type="button" data-i18n="dash.adjust">تعديل</button>
-      </section>
-
-      <!-- opportunities -->
-      <section class="panel" id="control-panel">
-        <div class="panel-head">
-          <h2>مركز التحكم</h2>
-          <div class="head-actions">
-            <button class="text-btn" id="run-analysis" type="button">تحليل الآن</button>
-            <button class="text-btn" id="open-settings" type="button">الإعدادات</button>
+          <div class="price-now">
+            <b id="qv-price">—</b>
+            <small id="qv-price-note"></small>
           </div>
         </div>
-        <div class="stat-grid">
-          <div class="stat"><small>إجمالي الصفقات</small><strong id="stat-total">0</strong></div>
-          <div class="stat"><small>نسبة النجاح</small><strong id="stat-winrate">0%</strong></div>
-          <div class="stat"><small>إجمالي P/L</small><strong id="stat-pnl">0.00</strong></div>
-          <div class="stat"><small>وضع التشغيل</small><strong id="stat-mode">—</strong></div>
-        </div>
-        <div class="quick-actions">
-          <button class="system-item" id="send-chart" type="button"><span class="sys-icon">🖼</span><span><strong>شارت التحليل</strong><small>إرسال إلى Telegram</small></span></button>
-          <button class="system-item" id="refresh-stats" type="button"><span class="sys-icon">📈</span><span><strong>الإحصائيات</strong><small id="stats-note">تحديث الأداء</small></span></button>
-          <button class="system-item" id="close-all" type="button"><span class="sys-icon">🔒</span><span><strong>إغلاق كل الصفقات</strong><small>يتطلب تأكيداً</small></span></button>
-          <button class="system-item" id="open-errors" type="button"><span class="sys-icon">⚠️</span><span><strong>سجل الأخطاء</strong><small id="error-count">—</small></span></button>
-        </div>
-        <div class="sync-grid">
-          <div><span>المنصة</span><strong id="platform-state">—</strong></div>
-          <div><span>جسر MT5</span><strong id="bridge-state">—</strong></div>
-          <div><span>مزامنة الحساب</span><strong id="sync-age">—</strong></div>
-          <div><span>آخر خطأ</span><strong id="last-error">—</strong></div>
-        </div>
-      </section>
+        <div class="signal-pill none" id="qv-signal" data-i18n="signal.none">NO TRADE</div>
+        <p class="verdict-reason" id="qv-reason" data-i18n="quick.hint">اختر أصلاً من القائمة أو ابحث عنه للبدء.</p>
+      </article>
 
-      <section class="panel">
-        <div class="panel-head">
-          <h2 data-i18n="dash.opportunities">فرص السوق</h2>
-          <span class="panel-hint" id="scan-hint">—</span>
+      <article class="card reveal">
+        <div class="card-head">
+          <h3 data-i18n="stats.title">لمحة سريعة</h3>
+          <small id="stats-updated"></small>
         </div>
-        <div id="opportunities" class="opp-list">
-          <div class="empty-state" data-i18n="dash.noOpp">يجري مسح الأسواق...</div>
+        <div class="tiles">
+          <div class="tile"><small data-i18n="stats.assets">أصول متاحة</small><b id="stat-assets">—</b></div>
+          <div class="tile"><small data-i18n="stats.analyzed">عمليات تحليل</small><b id="stat-analyzed">0</b></div>
+          <div class="tile"><small data-i18n="stats.buys">إشارات BUY</small><b class="green" id="stat-buy">0</b></div>
+          <div class="tile"><small data-i18n="stats.sells">إشارات SELL</small><b class="red" id="stat-sell">0</b></div>
+          <div class="tile"><small data-i18n="stats.none">بدون إشارة</small><b id="stat-none">0</b></div>
+          <div class="tile"><small data-i18n="stats.uptime">مدة التشغيل</small><b id="stat-uptime">—</b></div>
         </div>
-      </section>
-      <section class="panel eo-auto-panel" id="eo-auto-panel">
-        <div class="panel-head">
-          <h2>حلّل تلقائي</h2>
-          <span class="panel-hint">ExpertOption · تحليل فقط</span>
-        </div>
-        <p class="scanner-sub">اختر أصلاً ومدة الإشارة. هذا القسم للتحليل فقط، وقسم «التداول» مخصص لـ MT5.</p>
-        <button class="primary-btn compact" id="eo-auto-toggle" type="button" aria-expanded="false">حلّل تلقائي</button>
-        <div class="eo-auto-controls hidden" id="eo-auto-controls">
-          <div class="eo-assets" id="eo-assets" aria-label="أصول ExpertOption"></div>
-          <div class="eo-expiry-wrap hidden" id="eo-expiry-wrap">
-          <label class="field-label" for="eo-expiry">مدة الإشارة</label>
-          <select id="eo-expiry">
-            <option value="30s">30 ثانية</option>
-            <option value="1m" selected>دقيقة واحدة</option>
-            <option value="2m">دقيقتان</option>
-            <option value="3m">3 دقائق</option>
-            <option value="5m">5 دقائق</option>
-          </select>
-          <button class="primary-btn" id="eo-analyze-selected" type="button" disabled>حلّل الأصل المحدد</button>
-          </div>
-          <p class="eo-live-quote hidden" id="eo-live-quote" aria-live="polite"></p>
-        </div>
-        <div class="eo-analysis-result" id="eo-analysis-result" aria-live="polite">اختر أصلاً لعرض حالة توفر بياناته.</div>
-        <p class="scanner-disclaimer">التحليل يقرأ الشموع والسعر الحي من جلسة حساب ExpertOption عبر خدمة الربط الخاصة بمشروع ROZLF. لن نعرض سعراً أو إشارة إذا كانت الجلسة غير متحققة أو البيانات قديمة أو ناقصة. لا يتم تنفيذ أي صفقة.</p>
-      </section>
+      </article>
+    </div>
 
-      <section class="panel scanner-panel" id="scanner-panel">
-        <div class="panel-head">
-          <h2 data-i18n="scan.title">ماسح الأسواق الكامل</h2>
-          <span class="panel-hint" id="scanner-updated">—</span>
+    <!-- ============ ASSETS ============ -->
+    <section class="section reveal" id="assets">
+      <div class="section-head">
+        <div>
+          <h2 data-i18n="assets.title">الأصول</h2>
+          <p data-i18n="assets.sub">القائمة تُقرأ من أصول حسابك الفعلية — بدون رموز مُختلقة.</p>
         </div>
-        <p class="scanner-sub" data-i18n="scan.subtitle">تحليل عام لجميع أسواق المنصة المتاحة، مع ترتيب الفرص حسب قوة الإشارة.</p>
-        <div class="source-status" id="scanner-source">
-          <div><span data-i18n="scan.accountState">حالة الحساب</span><strong id="source-account">—</strong></div>
-          <div><span data-i18n="scan.priceSource">مصدر الأسعار</span><strong id="source-prices">—</strong></div>
-          <div><span data-i18n="scan.officialIntegration">التكامل الرسمي</span><strong class="blocked" data-i18n="scan.officialBlocked">غير متاح — شروط المنصة تمنع البوتات</strong></div>
-          <p id="source-reason">—</p>
-        </div>
-        <div class="scanner-actions">
-          <button class="primary-btn compact" id="scanner-start" type="button" data-i18n="scan.startScan">بدء المسح</button>
-          <button class="ghost-btn compact" id="scanner-stop" type="button" data-i18n="scan.stopScan">إيقاف المسح</button>
-          <button class="ghost-btn compact" id="scanner-trade" type="button" data-i18n="scan.startTrade">بدء التداول</button>
-        </div>
-        <div class="scanner-summary">
-          <div><span data-i18n="scan.total">إجمالي الأسواق</span><strong id="scan-total">0</strong></div>
-          <div><span data-i18n="scan.analyzed">تم تحليلها</span><strong id="scan-analyzed">0</strong></div>
-          <div><span data-i18n="scan.qualified">فرص مؤهلة</span><strong id="scan-qualified">0</strong></div>
-          <div><span data-i18n="scan.buySell">شراء / بيع</span><strong id="scan-buysell">0 / 0</strong></div>
-        </div>
-        <p class="scanner-state" id="scanner-state">—</p>
-        <div class="scanner-tabs" id="scanner-tabs" role="tablist"></div>
-        <p class="scanner-note hidden" id="scanner-category-note"></p>
-        <div class="scanner-list" id="scanner-list">
-          <div class="empty-state" data-i18n="scan.idle">اضغط بدء المسح لتحليل الأسواق المتاحة.</div>
-        </div>
-        <p class="scanner-disclaimer" data-i18n="scan.disclaimer">الأسعار مراجع سوق عامة وليست أسعار ExpertOption. الأصول OTC وSmarty خاصة بالحساب ولا تُدرج دون مصدر رسمي.</p>
-      </section>
-
-
-      <section class="panel image-analysis-panel">
-        <div class="panel-head">
-          <h2>تحليل صورة الشارت بالذكاء الاصطناعي</h2>
-          <span class="panel-hint">Forex · OTC · Smarty · غيرها</span>
-        </div>
-        <p class="scanner-sub">ارفع لقطة شاشة واضحة من الشارت. هذا الوضع يحلل الصورة فقط، ولا يدّعي قراءة أسعار OTC أو Smarty مباشرة من حسابك.</p>
-        <div class="image-analysis-controls">
-          <label class="field-label" for="chart-market-type">نوع السوق</label>
-          <select id="chart-market-type">
-            <option value="OTC">OTC</option>
-            <option value="Smarty">Smarty</option>
-            <option value="Forex">Forex</option>
-            <option value="Other">أخرى</option>
-          </select>
-          <label class="field-label" for="chart-symbol">اسم الأصل (اختياري)</label>
-          <input id="chart-symbol" type="text" maxlength="80" placeholder="مثال: EUR/USD أو اسم الأصل الظاهر">
-          <label class="field-label" for="chart-timeframe">الفريم (اختياري)</label>
-          <select id="chart-timeframe">
-            <option value="unknown">غير معروف</option><option>M1</option><option>M5</option><option>M15</option><option>M30</option><option>H1</option><option>H4</option>
-          </select>
-          <label class="field-label" for="chart-image-file">صورة الشارت (PNG / JPG / WEBP، حتى 5MB)</label>
-          <input id="chart-image-file" type="file" accept="image/png,image/jpeg,image/webp">
-          <button class="primary-btn" id="analyze-chart-image" type="button">حلّل الصورة</button>
-        </div>
-        <div id="image-analysis-status" class="scanner-state" aria-live="polite"></div>
-        <div id="image-analysis-result" class="image-analysis-result hidden"></div>
-        <p class="scanner-disclaimer">النتيجة تقديرية وليست توصية مضمونة. لا يتم فتح أي صفقة تلقائياً من تحليل الصور.</p>
-      </section>
-
-      <!-- open positions -->
-      <section class="panel">
-        <div class="panel-head">
-          <h2><span data-i18n="dash.openPositions">الصفقات المفتوحة</span>
-            <span class="count-chip" id="open-positions-count">0</span></h2>
-        </div>
-        <div id="open-positions" class="position-list">
-          <div class="empty-state" data-i18n="dash.noOpen">لا توجد صفقات مفتوحة.</div>
-        </div>
-      </section>
-
-      <!-- history -->
-      <section class="panel">
-        <div class="panel-head">
-          <h2 data-i18n="dash.history">سجل الصفقات</h2>
-          <button class="text-btn" id="refresh-history" type="button" data-i18n="dash.refresh">تحديث</button>
-        </div>
-        <div id="history" class="history-list">
-          <div class="empty-state" data-i18n="dash.noHistory">لا توجد صفقات بعد.</div>
-        </div>
-      </section>
-
-      <!-- system -->
-      <section class="panel system-panel">
-        <div class="panel-head">
-          <h2 data-i18n="dash.system">النظام والاتصالات</h2>
-          <button class="text-btn" id="open-logs" type="button" data-i18n="dash.logs">السجل</button>
-        </div>
-        <div class="system-grid">
-          <button class="system-item" id="test-market" type="button">
-            <span class="sys-icon">📡</span>
-            <span><strong data-i18n="dash.marketData">بيانات السوق</strong><small id="market-state">—</small></span>
-          </button>
-          <button class="system-item" id="test-telegram" type="button">
-            <span class="sys-icon">✈️</span>
-            <span><strong>Telegram</strong><small id="telegram-state">—</small></span>
-          </button>
-          <div class="system-item static">
-            <span class="sys-icon">🧠</span>
-            <span><strong>Mistral AI</strong><small id="ai-state">—</small></span>
-          </div>
-          <div class="system-item static">
-            <span class="sys-icon">🛡️</span>
-            <span><strong data-i18n="dash.riskEngine">محرك المخاطر</strong><small data-i18n="dash.riskActive">نشط</small></span>
-          </div>
-        </div>
-      </section>
-
-      <p class="disclaimer" id="disclaimer-text"></p>
-    </main>
-  </div>
-
-  <!-- modals -->
-  <div class="modal-backdrop hidden" id="settings-modal">
-    <div class="modal modal-wide">
-      <div class="modal-head">
-        <h3>إعدادات التداول والتحليل</h3>
-        <button class="icon-btn close-modal" type="button">✕</button>
+        <div class="filter-bar" id="asset-filters"></div>
       </div>
-      <form id="settings-form" class="modal-body">
-        <div class="form-grid">
-          <label class="field"><span>وضع التشغيل</span>
-            <select name="mode">
-              <option value="analysis">تحليل فقط</option>
-              <option value="demo">تداول Demo</option>
-            </select>
-          </label>
-          <label class="field"><span>الفريم</span>
-            <select name="timeframe" id="settings-timeframe"></select>
-          </label>
-          <label class="field"><span>المخاطرة لكل صفقة (%)</span><input type="number" name="risk_percent" min="0.1" max="2" step="0.1" /></label>
-          <label class="field"><span>حد الخسارة اليومي (%)</span><input type="number" name="daily_loss_limit_percent" min="0.5" max="10" step="0.5" /></label>
-          <label class="field"><span>أقصى صفقات مفتوحة</span><input type="number" name="max_open_trades" min="1" max="10" step="1" /></label>
-          <label class="field"><span>أقصى صفقات يومية</span><input type="number" name="max_daily_trades" min="1" max="50" step="1" /></label>
-          <label class="field"><span>أدنى قوة إشارة</span><input type="number" name="min_confidence" min="0.5" max="0.95" step="0.01" /></label>
-          <label class="field"><span>أقصى سبريد (نقطة)</span><input type="number" name="max_spread_pips" min="0.5" max="10" step="0.1" /></label>
-          <label class="field"><span>وقف الخسارة (نقطة، 0 تلقائي)</span><input type="number" name="stop_loss_pips" min="0" max="5000" step="1" /></label>
-          <label class="field"><span>الهدف (نقطة، 0 تلقائي)</span><input type="number" name="take_profit_pips" min="0" max="10000" step="1" /></label>
+      <div class="assets-grid" id="asset-grid">
+        <div class="empty-state" data-i18n="assets.loading">جارٍ تحميل الأصول من جلسة الحساب…</div>
+      </div>
+    </section>
+
+    <!-- ============ ANALYSIS ============ -->
+    <section class="section reveal" id="analysis">
+      <div class="section-head">
+        <div>
+          <h2 id="an-title" data-i18n="analysis.title">التحليل الفني</h2>
+          <p id="an-sub" data-i18n="analysis.sub">اختر أصلاً ومدة ثم ابدأ التحليل.</p>
         </div>
-        <div class="field"><span>الأزواج</span><div id="settings-symbols" class="check-grid"></div></div>
-        <div class="field"><span>الإشعارات</span><div id="settings-notifications" class="check-grid"></div></div>
-        <button class="primary-btn" type="submit">حفظ ومزامنة مع Telegram</button>
+        <div class="badge" id="an-badge"><span class="dot"></span><span id="an-badge-text" data-i18n="analysis.idle">بانتظار أصل</span></div>
+      </div>
+
+      <div class="expiry-row" id="expiry-row"></div>
+
+      <article class="card chart-card">
+        <div class="card-head">
+          <h3 data-i18n="chart.title">الشموع الحقيقية</h3>
+          <small id="chart-meta">—</small>
+        </div>
+        <div class="chart-wrap" id="chart-wrap">
+          <canvas id="price-chart" aria-label="Price chart" role="img"></canvas>
+          <div class="chart-empty" id="chart-empty" data-i18n="chart.empty">لا توجد شموع لعرضها بعد.</div>
+        </div>
+        <div class="chart-legend">
+          <span><i style="background:#34d399"></i><span data-i18n="chart.up">شموع صاعدة</span></span>
+          <span><i style="background:#f87171"></i><span data-i18n="chart.down">شموع هابطة</span></span>
+          <span><i style="background:#f5b22e"></i>EMA 20</span>
+          <span><i style="background:#5b9cf6"></i>EMA 50</span>
+          <span><i style="background:#a78bfa"></i><span data-i18n="chart.sr">دعم/مقاومة</span></span>
+        </div>
+      </article>
+
+      <div class="grid-2">
+        <article class="card">
+          <div class="card-head"><h3 data-i18n="verdict.title">القرار</h3><small id="verdict-when">—</small></div>
+          <div class="signal-pill none" id="an-signal" data-i18n="signal.none">NO TRADE</div>
+          <div class="meter">
+            <div class="meter-label"><span data-i18n="verdict.strength">قوة القراءة</span><span id="an-strength-label">—</span></div>
+            <div class="meter-track"><div class="meter-fill" id="an-strength"></div></div>
+          </div>
+          <ul class="reason-list" id="an-reasons"></ul>
+        </article>
+
+        <article class="card">
+          <div class="card-head"><h3 data-i18n="ind.title">المؤشرات</h3><small id="ind-price">—</small></div>
+          <div class="ind-grid" id="ind-grid"></div>
+        </article>
+      </div>
+
+      <div class="grid-2">
+        <article class="card">
+          <div class="card-head"><h3 data-i18n="levels.title">الدعم والمقاومة</h3></div>
+          <ul class="plain-list" id="sr-list"></ul>
+        </article>
+        <article class="card">
+          <div class="card-head"><h3 data-i18n="structure.title">هيكل السوق</h3></div>
+          <ul class="plain-list" id="structure-list"></ul>
+        </article>
+      </div>
+    </section>
+
+    <!-- ============ LOGS ============ -->
+    <section class="section reveal" id="logs">
+      <div class="section-head">
+        <div>
+          <h2 data-i18n="logs.title">سجل العمليات</h2>
+          <p data-i18n="logs.sub">أحدث الأحداث من الخادم — بدون أي أسرار.</p>
+        </div>
+        <button class="btn btn-ghost btn-sm" type="button" id="refresh-logs" data-i18n="logs.refresh">تحديث</button>
+      </div>
+      <article class="card">
+        <div id="log-list"><p class="verdict-reason" data-i18n="logs.loading">جارٍ التحميل…</p></div>
+      </article>
+    </section>
+
+    <p class="disclaimer" data-i18n="footer.risk">
+      ROZLF AUTO TRADER أداة تحليل ومعلومات فقط. لا ينفّذ صفقات ولا يدير أموالاً، ولا يضمن أي نتيجة.
+      التداول ينطوي على مخاطر عالية، والقرار النهائي مسؤوليتك وحدك.
+    </p>
+  </main>
+
+  <nav class="bottom-nav" aria-label="Sections">
+    <button type="button" data-target="#top" data-i18n-attr="aria-label:nav.home">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 10 9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H10v6H5a1 1 0 0 1-1-1z"/></svg>
+      <span data-i18n="nav.home">الرئيسية</span>
+    </button>
+    <button type="button" data-target="#assets">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V9M10 19V5M16 19v-7M22 19H2"/></svg>
+      <span data-i18n="nav.assets">الأصول</span>
+    </button>
+    <button type="button" data-target="#analysis">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17 9 9l4 4 8-9"/><path d="M15 4h6v6"/></svg>
+      <span data-i18n="nav.analysis">التحليل</span>
+    </button>
+    <button type="button" data-target="#logs">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z"/><path d="M8 9h8M8 13h5"/></svg>
+      <span data-i18n="nav.logs">السجل</span>
+    </button>
+  </nav>
+
+  <div class="modal-backdrop hidden" id="access-modal" role="dialog" aria-modal="true" aria-labelledby="access-title">
+    <div class="modal">
+      <h3 id="access-title" data-i18n="access.title">مفتاح الوصول</h3>
+      <p data-i18n="access.sub">يُطلب مفتاح اللوحة (Dashboard Token) مرة واحدة ويُحفظ في متصفحك فقط.</p>
+      <form id="access-form">
+        <label class="field">
+          <span data-i18n="access.field">Dashboard Token</span>
+          <input id="access-input" class="ltr" type="password" placeholder="••••••••" autocomplete="off" spellcheck="false" />
+        </label>
+        <p class="form-error" id="access-msg"></p>
+        <div class="modal-actions">
+          <button class="btn btn-ghost" type="button" id="access-cancel" data-i18n="access.cancel">إلغاء</button>
+          <button class="btn btn-primary" type="submit" data-i18n="access.save">حفظ</button>
+        </div>
       </form>
     </div>
   </div>
 
-  <div class="modal-backdrop hidden" id="risk-modal">
-    <div class="modal">
-      <div class="modal-head">
-        <h3 data-i18n="risk.title">إدارة المخاطر</h3>
-        <button class="icon-btn close-modal" type="button">✕</button>
-      </div>
-      <form id="risk-form" class="modal-body">
-        <label class="field"><span data-i18n="risk.riskPerTrade">المخاطرة لكل صفقة (%)</span><input type="number" name="risk_percent" min="0.1" max="2" step="0.1" /></label>
-        <label class="field"><span data-i18n="risk.dailyLimit">حد الخسارة اليومي (%)</span><input type="number" name="daily_loss_limit_percent" min="0.5" max="10" step="0.5" /></label>
-        <label class="field"><span data-i18n="risk.maxOpen">أقصى صفقات مفتوحة</span><input type="number" name="max_open_trades" min="1" max="10" step="1" /></label>
-        <label class="field"><span data-i18n="risk.maxDaily">أقصى صفقات يومية</span><input type="number" name="max_daily_trades" min="1" max="50" step="1" /></label>
-        <label class="field"><span data-i18n="risk.confidence">أدنى ثقة للتحليل</span><input type="number" name="min_confidence" min="0.5" max="0.95" step="0.01" /></label>
-        <label class="field"><span data-i18n="risk.spread">أقصى سبريد (نقاط)</span><input type="number" name="max_spread_pips" min="0.5" max="10" step="0.1" /></label>
-        <button class="primary-btn" type="submit" data-i18n="common.save">حفظ</button>
-      </form>
-    </div>
-  </div>
+  <div class="toast hidden" id="toast" role="status" aria-live="polite"></div>
 
-  <div class="modal-backdrop hidden" id="logs-modal">
-    <div class="modal">
-      <div class="modal-head">
-        <h3 data-i18n="dash.logs">سجل العمليات</h3>
-        <button class="icon-btn close-modal" type="button">✕</button>
-      </div>
-      <div class="log-list" id="log-list"></div>
-    </div>
-  </div>
-
-  <div id="toast" class="toast hidden"></div>
-</div>
-<script src="/static/js/i18n.js?v=8"></script>
-<script src="/static/js/app.js?v=8"></script>
+  <script src="/static/js/i18n.js?v=10"></script>
+  <script src="/static/js/app.js?v=10"></script>
 </body>
 </html>

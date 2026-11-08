@@ -66,7 +66,8 @@ test('health, config and auth surface behave', async (t) => {
 
   const config = await call(base, '/api/config');
   assert.equal(config.status, 200);
-  assert.deepEqual(config.body.platforms, ['expertoption', 'mt5']);
+  assert.deepEqual(config.body.platforms, ['expertoption']);
+  assert.equal(config.body.mt5_enabled, false);
   assert.deepEqual(config.body.enabled_account_types, ['demo']);
   assert.equal(config.body.real_trading_approved, false);
   assert.equal(config.body.expertoption_execution, false);
@@ -125,28 +126,28 @@ test('validation, real-account block and analysis-only ExpertOption', async (t) 
   assert.equal(verify.body.ok, false);
 });
 
-test('demo connect, status, market test, risk and bot controls', async (t) => {
+test('ExpertOption demo connect, status, risk and bot controls', async (t) => {
   const { base } = await boot(t);
   const connect = await call(base, '/api/connect', {
     method: 'POST',
-    body: { platform: 'mt5', account_type: 'demo', login: '900001', password: 'demo-pass', server: 'demo' },
+    body: {
+      platform: 'expertoption', account_type: 'demo',
+      login: 'demo@example.com', session_token: 'demo-session-token',
+    },
   });
   assert.equal(connect.status, 200);
-  assert.equal(connect.body.execution_mode, 'simulated');
+  assert.equal(connect.body.execution_mode, 'analysis_only');
   assert.equal(connect.body.account_type, 'demo');
-  assert.equal(connect.body.broker_connected, true);
-  assert.equal(connect.body.balance, 10000);
+  assert.equal(connect.body.account_status, 'analysis');
+  assert.equal(connect.body.connected, true);
+  assert.equal(connect.body.expertoption.verified, false);
+  assert.equal(connect.body.expertoption.token_stored_encrypted, true);
   assert.equal(connect.body.running, false);
 
   const status = await call(base, '/api/status');
   assert.equal(status.status, 200);
-  assert.equal(status.body.account_login, '900001');
+  assert.equal(status.body.account_login, 'demo@example.com');
   assert.ok(Array.isArray(status.body.open_trades));
-
-  const market = await call(base, '/api/market/test', { method: 'POST' });
-  assert.equal(market.status, 200);
-  assert.equal(market.body.connected, true);
-  assert.equal(market.body.results.length, 7);
 
   const risk = await call(base, '/api/risk');
   assert.equal(risk.status, 200);

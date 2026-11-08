@@ -150,6 +150,20 @@ class ExpertOptionSession {
     return 'configured_unverified';
   }
 
+  // Adopt a verification produced by a probe session with the same token, so
+  // storing a token never costs a second round-trip.
+  adoptVerified(source) {
+    if (!source || !source.verified) return this.status();
+    this.connected = true;
+    this.verified = true;
+    this.verifiedAt = source.verified_at || new Date().toISOString();
+    this.sessionExpired = false;
+    this.accountInfoCache = source.account || null;
+    this.accountLoginWarning = source.account_login_warning || null;
+    this.lastError = null;
+    return this.status();
+  }
+
   status() {
     return {
       platform: 'expertoption',

@@ -217,7 +217,7 @@ class TradingEngine {
     return this.risk.settings;
   }
 
-  async _wireExpertOptionAccount({ accountId, login, accountType, token, stored, restored }) {
+  async _wireExpertOptionAccount({ accountId, login, accountType, token, stored, restored, preverified = null }) {
     this.account = await this.db.getAccount(accountId);
     if (!this.account) throw new Error('ExpertOption account record is missing');
     this.expertOptionSession = new ExpertOptionSession({
@@ -266,7 +266,8 @@ class TradingEngine {
       { mode: 'analysis_only', token_stored: stored, bridge_configured: this.expertOptionSession.configured });
 
     if (!this.expertOptionSession.configured) return this.status();
-    const verified = await this.expertOptionSession.verify();
+    const verified = preverified || await this.expertOptionSession.verify();
+    if (preverified) this.expertOptionSession.adoptVerified(preverified);
     if (verified.verified && verified.account) {
       this.accountSynced = true;
       this.accountSyncAt = new Date().toISOString();
@@ -343,18 +344,21 @@ class TradingEngine {
     }
 
     if (platform === 'expertoption') {
-      const secret = sessionToken || password || '';
+      const secret = sessionToken || password || config.EXPERTOPTION_SESSION_TOKEN || '';
+      if (!secret) throw new Error('A Session Token is required to read your ExpertOption account');
+      // The token is stored encrypted first, then verified. A bridge that is
+      // still starting up must not cost the user their token, and the session
+      // stays "unverified" until the gateway actually accepts it.
       const accountRow = await this.db.upsertAccount(
         platform, accountType, login, server || 'ExpertOption',
         require('./security').encryptSecret(secret), 0,
       );
-      await this.db.setAccountStatus(accountRow.id, 'token_unverified');
       return this._wireExpertOptionAccount({
         accountId: accountRow.id,
         login,
         accountType,
-        token: sessionToken || config.EXPERTOPTION_SESSION_TOKEN || '',
-        stored: Boolean(secret),
+        token: secret,
+        stored: true,
         restored: false,
       });
     }

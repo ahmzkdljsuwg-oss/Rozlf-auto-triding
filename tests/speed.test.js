@@ -55,14 +55,14 @@ test('speed presets keep slow the most selective', () => {
   assert.equal(getSpeedPreset('unknown').id, 'medium');
 });
 
-test('MT5 demo connect fails instead of pretending to trade without a bridge', async (t) => {
+test('MT5 connect is refused instead of pretending to trade without a bridge', async (t) => {
   const { base } = await boot(t);
   const res = await call(base, '/api/connect', {
     method: 'POST',
     body: { platform: 'mt5', account_type: 'demo', login: '900001', password: 'demo-pass', server: 'demo' },
   });
-  assert.equal(res.status, 502);
-  assert.match(res.body.detail, /simulated MT5|bridge/i);
+  assert.equal(res.status, 403);
+  assert.match(res.body.detail, /MT5.*disabled/i);
 });
 
 test('site speed endpoint persists the selected mode', async (t) => {

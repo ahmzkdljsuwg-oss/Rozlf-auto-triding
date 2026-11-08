@@ -55,7 +55,9 @@ function createApp({ engine }) {
   });
 
   app.get('/api/config', (req, res) => {
-    const platforms = ['expertoption', 'mt5'];
+    // MT5 is temporarily removed from the product surface (interface, menus,
+    // connections and settings). The integration code stays in the tree.
+    const platforms = ['expertoption'];
     const accountTypes = config.REAL_TRADING_APPROVED ? ['demo', 'real'] : ['demo'];
     res.json({
       app: config.APP_NAME,
@@ -71,7 +73,8 @@ function createApp({ engine }) {
       symbols: config.SYMBOLS,
       timeframes: config.TIMEFRAMES,
       market_data_provider: 'yahoo',
-      mt5_enabled: config.MT5_ENABLED && Boolean(config.MT5_BRIDGE_URL),
+      mt5_enabled: false,
+      mt5_available: false,
       expertoption_execution: false,
       expertoption_real_read: config.EXPERTOPTION_ALLOW_REAL_READ,
       session_restore_enabled: config.EXPERTOPTION_RESTORE_SESSION,
@@ -105,7 +108,10 @@ function createApp({ engine }) {
   app.post('/api/connect', async (req, res) => {
     const body = req.body || {};
     const errors = [];
-    if (!['expertoption', 'mt5'].includes(body.platform)) errors.push('platform must be expertoption or mt5');
+    if (body.platform === 'mt5') {
+      return fail(res, 403, 'MT5 is temporarily disabled in ROZLF; ExpertOption analysis only.');
+    }
+    if (body.platform !== 'expertoption') errors.push('platform must be expertoption');
     if (!['demo', 'real'].includes(body.account_type)) errors.push('account_type must be demo or real');
     const isExpertOption = body.platform === 'expertoption';
     if (!isText(body.login, 2, 128)) errors.push('login must be 2-128 characters');
