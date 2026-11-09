@@ -482,6 +482,31 @@ class ExpertOptionSession {
     return instruments;
   }
 
+  async sources() {
+    return this._request('/sources', { retries: 0 });
+  }
+
+  async catalog({ q = '', market = 'all', onlyActive = false, limit = 500 } = {}) {
+    if (!this.verified) throw new ExpertOptionError('ExpertOption session is not verified', 'not_verified');
+    return this._request('/catalog', {
+      query: { q: String(q).slice(0, 64), market: String(market).slice(0, 16), only_active: onlyActive ? 'true' : 'false', limit },
+    });
+  }
+
+  async verifyCoverage({ timeframes = [] } = {}) {
+    if (!this.verified) throw new ExpertOptionError('ExpertOption session is not verified', 'not_verified');
+    const list = Array.isArray(timeframes) ? timeframes.filter(Number.isFinite) : [];
+    return this._request('/verify', { query: list.length ? { timeframes: list.join(',') } : {}, retries: 0 });
+  }
+
+  async verifyInstrument(instrumentId, { timeframes = [] } = {}) {
+    if (!this.verified) throw new ExpertOptionError('ExpertOption session is not verified', 'not_verified');
+    const list = Array.isArray(timeframes) ? timeframes.filter(Number.isFinite) : [];
+    return this._request(`/verify/${encodeURIComponent(instrumentId)}`, {
+      query: list.length ? { timeframes: list.join(',') } : {}, retries: 0,
+    });
+  }
+
   async candles({ instrumentId, timeframe = 'M1', limit = 200 }) {
     if (!this.verified) throw new ExpertOptionError('ExpertOption session is not verified', 'not_verified');
     if (instrumentId === undefined || instrumentId === null || instrumentId === '') {

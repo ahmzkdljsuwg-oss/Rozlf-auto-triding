@@ -21,6 +21,11 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.responses import JSONResponse
 
 from . import handshake
+from .sources import model as source_model
+from .sources import registry as source_registry
+from .sources.base import SourceError
+from .sources.model import normalize_asset as _normalize_record
+from .sources.verification import DEFAULT_PROBE_TIMEFRAMES, verify_instrument, verify_many
 from .manager import (
     SUPPORTED_PERIODS,
     TIMEFRAME_SECONDS,
@@ -87,61 +92,9 @@ def period_of(timeframe: str) -> int:
     raise HTTPException(status_code=422, detail=f"Unsupported timeframe: {timeframe}")
 
 
-def _truthy(value: Any, default: bool = True) -> bool:
-    if value is None:
-        return default
-    if isinstance(value, str):
-        return value.strip().lower() not in {"", "0", "false", "no", "off"}
-    if isinstance(value, (int, float)):
-        return value != 0
-    return bool(value)
-
-
-def classify_asset(asset: dict, symbol: str, name: str) -> str:
-    """Best-effort market type from the account payload itself.
-
-    ExpertOption mixes OTC pairs, synthetic/index assets and normal instruments
-    in one list; the raw `type` field is not documented, so a symbol/name rule
-    is used first and the raw value is kept separately.
-    """
-    text = f"{symbol} {name}".upper()
-    if "SMRTY" in text or "SMARTY" in text:
-        return "smarty"
-    if re.search(r"CRICKET|FOOTBALL|AI[ _-]?INDEX|LUXURY|INDEX", text):
-        return "index"
-    if "OTC" in text:
-        return "otc"
-    if re.search(r"BTC|ETH|LTC|XRP|DOGE|SOL|ADA|BNB|CRYPTO", text):
-        return "crypto"
-    if re.search(r"OIL|GOLD|SILVER|XAU|XAG|BRENT|WTI|GAS", text):
-        return "commodity"
-    if re.search(r"^(AAPL|TSLA|AMZN|MSFT|META|NFLX|GOOGL|NVDA)", text):
-        return "stock"
-    if re.search(r"[A-Z]{3}[_/]?[A-Z]{3}", text):
-        return "forex"
-    return "other"
-
-
 def normalize_asset(asset: dict, fallback_timeframes: Optional[List[int]] = None) -> Dict[str, Any]:
-    symbol = str(asset.get("symbol") or asset.get("asset") or asset.get("name") or "").strip()
-    name = str(asset.get("name") or asset.get("title") or symbol).strip()
-    asset_id = asset.get("id", asset.get("asset_id", asset.get("instrument_id")))
-    raw_active = asset.get("is_active", asset.get("active", asset.get("enabled")))
-    timeframes = asset.get("timeframes")
-    if not isinstance(timeframes, list) or not timeframes:
-        timeframes = list(fallback_timeframes or [])
-    return {
-        "id": asset_id,
-        "symbol": symbol,
-        "name": name,
-        "active": _truthy(raw_active),
-        "active_known": raw_active is not None,
-        "payout": asset.get("profit", asset.get("payout")),
-        "otc": "OTC" in f"{symbol} {name}".upper(),
-        "category": classify_asset(asset, symbol, name),
-        "raw_type": asset.get("type") or asset.get("category"),
-        "timeframes": [int(t) for t in timeframes if str(t).isdigit()],
-    }
+    """Delegates to the unified model so one implementation serves every caller."""
+    return _normalize_record(asset, fallback_timeframes).as_legacy_dict()
 
 
 def expiry_seconds(exp_times: List[int]) -> List[int]:
@@ -398,6 +351,173 @@ async def instrument_detail(
             result["probe"] = {"ok": False, "period_seconds": period,
                                "code": exc.code, "message": str(exc)[:200]}
     return result
+
+
+def _source_or_error(name: str, token: Optional[str], demo_hdr: Optional[str]):
+    demo = (demo_hdr or "1").strip() not in {"0", "false", "False", "real"}
+    try:
+        source = source_registry.resolve(name, token or "", demo)
+    except SourceError as exc:
+        raise HTTPException(status_code=exc.status, detail={"code": exc.code, "message": str(exc)})
+    return source
+
+
+def _source_error(exc: SourceError) -> HTTPException:
+    return HTTPException(status_code=exc.status, detail={"code": exc.code, "message": str(exc)})
+
+
+@app.get("/sources", dependencies=[Depends(require_key)])
+async def sources() -> Dict[str, Any]:
+    """Every provider ROZLF evaluated, with the ones actually usable marked."""
+    return {
+        "available": source_registry.names(),
+        "providers": source_registry.describe(),
+        "read_only": True,
+        "execution": "disabled",
+        "updated_at": int(time.time()),
+    }
+
+
+@app.get("/sources/{name}/assets", dependencies=[Depends(require_key)])
+async def source_assets(
+    name: str,
+    refresh: bool = Query(default=False),
+    x_eo_token: Optional[str] = Header(default=None),
+    x_eo_demo: Optional[str] = Header(default=None),
+) -> Dict[str, Any]:
+    source = _source_or_error(name, x_eo_token, x_eo_demo)
+    try:
+        assets = await source.assets(refresh=refresh)
+        timeframes = await source.timeframes()
+    except SourceError as exc:
+        raise _source_error(exc) from exc
+    return {
+        "source": source.name,
+        "count": len(assets),
+        "active_count": len([a for a in assets if a.active]),
+        "markets": source_model.market_summary(assets),
+        "timeframes": timeframes,
+        "assets": [a.as_dict() for a in assets],
+        "updated_at": int(time.time()),
+    }
+
+
+@app.get("/sources/{name}/candles", dependencies=[Depends(require_key)])
+async def source_candles(
+    name: str,
+    instrument_id: int = Query(...),
+    timeframe: str = Query(...),
+    limit: int = Query(default=300, ge=10, le=1000),
+    x_eo_token: Optional[str] = Header(default=None),
+    x_eo_demo: Optional[str] = Header(default=None),
+) -> Dict[str, Any]:
+    source = _source_or_error(name, x_eo_token, x_eo_demo)
+    period = period_of(timeframe)
+    try:
+        rows = await source.candles(instrument_id, period, limit)
+    except SourceError as exc:
+        if exc.code in {"no_candles", "asset_not_found"}:
+            return {"instrument_id": instrument_id, "timeframe": timeframe, "period_seconds": period,
+                    "candles": [], "count": 0, "source": source.name,
+                    "reason": exc.code, "updated_at": int(time.time())}
+        raise _source_error(exc) from exc
+    return {
+        "instrument_id": instrument_id,
+        "timeframe": timeframe,
+        "period_seconds": period,
+        "candles": [c.as_dict() for c in rows],
+        "count": len(rows),
+        "source": source.name,
+        "reason": None,
+        "updated_at": int(time.time()),
+    }
+
+
+@app.get("/sources/{name}/quote", dependencies=[Depends(require_key)])
+async def source_quote(
+    name: str,
+    instrument_id: int = Query(...),
+    timeframe: str = Query(default="M1"),
+    x_eo_token: Optional[str] = Header(default=None),
+    x_eo_demo: Optional[str] = Header(default=None),
+) -> Dict[str, Any]:
+    source = _source_or_error(name, x_eo_token, x_eo_demo)
+    period = period_of(timeframe)
+    try:
+        data = await source.quote(instrument_id, period)
+    except SourceError as exc:
+        raise _source_error(exc) from exc
+    return {"source": source.name, "instrument_id": instrument_id, "timeframe": timeframe, **data.as_dict()}
+
+
+@app.get("/catalog", dependencies=[Depends(require_key)])
+async def catalog(
+    q: str = Query(default=""),
+    market: str = Query(default="all"),
+    only_active: bool = Query(default=False),
+    limit: int = Query(default=500, ge=1, le=2000),
+    x_eo_token: Optional[str] = Header(default=None),
+    x_eo_demo: Optional[str] = Header(default=None),
+) -> Dict[str, Any]:
+    """Search/classification over the provider's real list plus promised coverage."""
+    source = _source_or_error("expertoption-session", x_eo_token, x_eo_demo)
+    try:
+        assets = await source.assets()
+    except SourceError as exc:
+        raise _source_error(exc) from exc
+    matches = source_model.search(assets, q, market, only_active)
+    coverage = source_model.match_wanted(assets)
+    return {
+        "source": source.name,
+        "query": q,
+        "market": market,
+        "total": len(assets),
+        "matched": len(matches),
+        "markets": source_model.market_summary(assets),
+        "market_labels": source_model.MARKET_LABELS,
+        "assets": [a.as_dict() for a in matches[:limit]],
+        "coverage": coverage,
+        "coverage_found": len([c for c in coverage if c["found"]]),
+        "coverage_missing": [c["requested"] for c in coverage if not c["found"]],
+        "updated_at": int(time.time()),
+    }
+
+
+@app.get("/verify", dependencies=[Depends(require_key)])
+async def verify_coverage(
+    timeframes: str = Query(default=""),
+    x_eo_token: Optional[str] = Header(default=None),
+    x_eo_demo: Optional[str] = Header(default=None),
+) -> Dict[str, Any]:
+    """Run the eight checks over every promised instrument on the real account."""
+    source = _source_or_error("expertoption-session", x_eo_token, x_eo_demo)
+    periods = [int(p) for p in timeframes.split(",") if p.strip().isdigit()] or list(DEFAULT_PROBE_TIMEFRAMES)
+    try:
+        assets = await source.assets()
+    except SourceError as exc:
+        raise _source_error(exc) from exc
+    targets = []
+    for item in source_model.match_wanted(assets):
+        if item["found"]:
+            targets.append({"id": item["asset"]["id"]})
+        else:
+            targets.append({"symbol": item["requested"]})
+    report = await verify_many(source, targets, periods)
+    report["unavailable"] = [c["requested"] for c in source_model.match_wanted(assets) if not c["found"]]
+    return report
+
+
+@app.get("/verify/{instrument_id}", dependencies=[Depends(require_key)])
+async def verify_one(
+    instrument_id: int,
+    timeframes: str = Query(default=""),
+    x_eo_token: Optional[str] = Header(default=None),
+    x_eo_demo: Optional[str] = Header(default=None),
+) -> Dict[str, Any]:
+    source = _source_or_error("expertoption-session", x_eo_token, x_eo_demo)
+    periods = [int(p) for p in timeframes.split(",") if p.strip().isdigit()] or list(DEFAULT_PROBE_TIMEFRAMES)
+    report = await verify_instrument(source, asset_id=instrument_id, timeframes=periods)
+    return report
 
 
 @app.exception_handler(HTTPException)

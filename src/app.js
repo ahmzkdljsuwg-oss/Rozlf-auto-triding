@@ -438,6 +438,53 @@ function createApp({ engine }) {
     res.json(engine.expertOptionSession.status());
   });
 
+  app.get('/api/expertoption/sources', async (req, res) => {
+    if (!engine.expertOptionSession) return fail(res, 409, 'No ExpertOption session is attached');
+    try {
+      res.json({ ...(await engine.expertOptionSession.sources()), execution_allowed: false });
+    } catch (err) {
+      return fail(res, 502, err.message || 'Source registry unavailable');
+    }
+  });
+
+  app.get('/api/expertoption/catalog', async (req, res) => {
+    if (!engine.expertOptionSession) return fail(res, 409, 'No ExpertOption session is attached');
+    try {
+      const data = await engine.expertOptionSession.catalog({
+        q: String(req.query.q || ''),
+        market: String(req.query.market || 'all'),
+        onlyActive: String(req.query.only_active || '') === 'true',
+      });
+      res.json({ ...data, execution_allowed: false });
+    } catch (err) {
+      return fail(res, err.code === 'not_verified' ? 409 : 502, err.message || 'Catalog unavailable');
+    }
+  });
+
+  app.get('/api/expertoption/verify', async (req, res) => {
+    if (!engine.expertOptionSession) return fail(res, 409, 'No ExpertOption session is attached');
+    const timeframes = String(req.query.timeframes || '').split(',')
+      .map((v) => Number(v.trim())).filter((v) => Number.isFinite(v) && v > 0);
+    try {
+      const report = await engine.expertOptionSession.verifyCoverage({ timeframes });
+      res.json({ ...report, execution_allowed: false });
+    } catch (err) {
+      return fail(res, err.code === 'not_verified' ? 409 : 502, err.message || 'Verification unavailable');
+    }
+  });
+
+  app.get('/api/expertoption/verify/:id', async (req, res) => {
+    if (!engine.expertOptionSession) return fail(res, 409, 'No ExpertOption session is attached');
+    const timeframes = String(req.query.timeframes || '').split(',')
+      .map((v) => Number(v.trim())).filter((v) => Number.isFinite(v) && v > 0);
+    try {
+      const report = await engine.expertOptionSession.verifyInstrument(req.params.id, { timeframes });
+      res.json({ ...report, execution_allowed: false });
+    } catch (err) {
+      return fail(res, err.code === 'not_verified' ? 409 : 502, err.message || 'Verification unavailable');
+    }
+  });
+
   app.get('/api/expertoption/integration', (req, res) => {
     res.json(integrationStatus());
   });

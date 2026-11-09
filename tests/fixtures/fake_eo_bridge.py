@@ -7,10 +7,18 @@ ExpertOption credentials.
 
 import math
 import os
+import pathlib
+import sys
 import time
 
 import uvicorn
 from fastapi import FastAPI, Header, HTTPException, Query
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
+from eo_bridge.sources import model as smodel  # noqa: E402
+from eo_bridge.sources import registry as source_registry  # noqa: E402
+from eo_bridge.sources.base import Candle, DataSource, QuoteRecord  # noqa: E402
+from eo_bridge.sources.verification import verify_instrument, verify_many  # noqa: E402
 
 API_KEY = os.environ.get("EO_BRIDGE_API_KEY", "test-key")
 START = time.time()
@@ -119,6 +127,76 @@ def quote(instrument_id: str, timeframe: str = "M1", authorization: str = Header
 def expiries(instrument_id: str, timeframe: str = "M1", authorization: str = Header(default="")):
     check(authorization)
     return {"ok": True, "expiries": [30, 60, 120, 180, 300]}
+
+
+class FixtureSource(DataSource):
+    name = "expertoption-session"
+    title = "Fixture session"
+
+    def status(self):
+        return {"source": self.name, "connected": True}
+
+    async def assets(self, refresh=False):
+        return smodel.normalize_assets(INSTRUMENTS, fallback_timeframes=[60, 300])
+
+    async def timeframes(self, refresh=False):
+        return [60, 300]
+
+    async def candles(self, asset_id, period, limit=200):
+        label = "M5" if int(period) == 300 else "M1"
+        rows = build_candles(str(asset_id), label, limit)
+        return [Candle(time=int(r["time"]), open=r["open"], high=r["high"], low=r["low"],
+                       close=r["close"], volume=float(r["volume"]), timeframe=int(period)) for r in rows]
+
+    async def quote(self, asset_id, period=60):
+        rows = await self.candles(asset_id, period, 2)
+        last = rows[-1]
+        return QuoteRecord(price=last.close, time=last.time, timeframe=int(period), age_ms=0)
+
+
+@app.get("/sources")
+def sources(authorization: str = Header(default="")):
+    check(authorization)
+    return {"available": source_registry.names(), "providers": source_registry.describe(),
+            "read_only": True, "execution": "disabled", "updated_at": int(time.time())}
+
+
+@app.get("/catalog")
+def catalog(q: str = "", market: str = "all", only_active: str = "false",
+            authorization: str = Header(default="")):
+    check(authorization)
+    assets = smodel.normalize_assets(INSTRUMENTS, fallback_timeframes=[60, 300])
+    matches = smodel.search(assets, q, market, only_active == "true")
+    coverage = smodel.match_wanted(assets)
+    return {"source": "expertoption-session", "query": q, "market": market,
+            "total": len(assets), "matched": len(matches),
+            "markets": smodel.market_summary(assets), "market_labels": smodel.MARKET_LABELS,
+            "assets": [a.as_dict() for a in matches], "coverage": coverage,
+            "coverage_found": len([c for c in coverage if c["found"]]),
+            "coverage_missing": [c["requested"] for c in coverage if not c["found"]],
+            "updated_at": int(time.time())}
+
+
+@app.get("/verify")
+def verify(authorization: str = Header(default=""), timeframes: str = ""):
+    check(authorization)
+    import asyncio
+    periods = [int(p) for p in timeframes.split(",") if p.strip().isdigit()] or [60, 300]
+    source = FixtureSource()
+    assets = asyncio.run(source.assets())
+    targets = [{"id": c["asset"]["id"]} if c["found"] else {"symbol": c["requested"]}
+               for c in smodel.match_wanted(assets)]
+    report = asyncio.run(verify_many(source, targets, periods))
+    report["unavailable"] = [c["requested"] for c in smodel.match_wanted(assets) if not c["found"]]
+    return report
+
+
+@app.get("/verify/{instrument_id}")
+def verify_one(instrument_id: str, authorization: str = Header(default=""), timeframes: str = ""):
+    check(authorization)
+    import asyncio
+    periods = [int(p) for p in timeframes.split(",") if p.strip().isdigit()] or [60, 300]
+    return asyncio.run(verify_instrument(FixtureSource(), asset_id=instrument_id, timeframes=periods))
 
 
 if __name__ == "__main__":

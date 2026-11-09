@@ -177,6 +177,57 @@ test('an account instrument outside the priority list can still be analysed by i
   assert.equal(noId.reason_code, 'bad_asset');
 });
 
+test('the unified catalog classifies and searches the real asset list', async (t) => {
+  const base = await startBridge(t);
+  const session = sessionFor(base);
+  await session.verify();
+
+  const sources = await session.sources();
+  assert.deepEqual(sources.available, ['expertoption-session']);
+  assert.equal(sources.read_only, true);
+  assert.equal(sources.execution, 'disabled');
+  assert.ok(sources.providers.every((p) => p.why));
+  assert.ok(sources.providers.some((p) => p.available === false), 'rejected repos are listed honestly');
+
+  const catalog = await session.catalog({});
+  assert.equal(catalog.total, 4);
+  assert.equal(catalog.markets.smarty, 1);
+  assert.equal(catalog.markets.otc, 1);
+  assert.equal(catalog.markets.crypto, 1);
+  assert.ok(catalog.coverage_missing.includes('GBP/JPY'));
+  assert.equal(catalog.coverage_found, 3, 'Smarty, EUR/USD OTC and Cricket Index only');
+
+  const otc = await session.catalog({ market: 'otc' });
+  assert.deepEqual(otc.assets.map((a) => a.id), ['179']);
+  const search = await session.catalog({ q: 'smart' });
+  assert.deepEqual(search.assets.map((a) => a.symbol), ['SMARTY']);
+  const activeOnly = await session.catalog({ onlyActive: true });
+  assert.equal(activeOnly.matched, 3);
+});
+
+test('verification refuses to mark an unlisted or unproven asset as connected', async (t) => {
+  const base = await startBridge(t);
+  const session = sessionFor(base);
+  await session.verify();
+
+  const report = await session.verifyCoverage({ timeframes: [60, 300] });
+  assert.equal(report.total, report.passed + report.failed);
+  assert.ok(report.unavailable.includes('GBP/JPY'));
+  const smarty = report.results.find((r) => r.asset && r.asset.id === '240');
+  assert.equal(smarty.passed, true, JSON.stringify(smarty.checks));
+  assert.equal(smarty.verdict, 'verified');
+  assert.equal(smarty.checks.length, 8);
+  const missing = report.results.find((r) => r.verdict === 'not_listed');
+  assert.ok(missing && missing.checks.every((c) => c.ok === false));
+
+  const one = await session.verifyInstrument('240', { timeframes: [60] });
+  assert.equal(one.passed, true);
+  const unsupported = await session.verifyInstrument('240', { timeframes: [1800] });
+  const tf = unsupported.checks.find((c) => c.id === 'timeframes');
+  assert.equal(tf.ok, false);
+  assert.match(tf.timeframes[0].detail, /غير مدعوم|لا شموع/);
+});
+
 test('a bad bridge key is reported, never treated as connected', async (t) => {
   const base = await startBridge(t);
   const session = sessionFor(base, { apiKey: 'wrong-key' });
